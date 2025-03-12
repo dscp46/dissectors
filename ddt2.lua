@@ -12,6 +12,16 @@ local DDT2_OFFSET   = 0x40
 local DDT2_MAGIC_COMP = 0xDD
 local DDT2_MAGIC_UCMP = 0x22
 
+local DDT2_TYPE_STATELESS = 0
+local DDT2_TYPE_GENERAL = 1
+local DDT2_TYPE_FILE_XFER = 2
+local DDT2_TYPE_FRM_XFER = 3
+local DDT2_TYPE_SOCK = 4
+local DDT2_TYPE_PPFILE_XFER = 5
+local DDT2_TYPE_PPFRM_XFER = 6
+local DDT2_TYPE_RPC = 7
+local DDT2_TYPE_WARMUP = 254
+
 local DDT2_STLESS_DEFAULT = 0
 local DDT2_STLESS_PRQ = 1
 local DDT2_STLESS_PRP = 2
@@ -19,29 +29,32 @@ local DDT2_STLESS_ERQ = 3
 local DDT2_STLESS_ERP = 4
 local DDT2_STLESS_STATUS = 5
 
+
+
 -------------------------------------------------------------------------------
 -- Lookup tables
 -------------------------------------------------------------------------------
 
 -- Frame Type
 local ddt2_frame_type = {
-	[0]= { ["name"]="Stateless", ["deprecated"]=false },
-	[1]= { ["name"]="General", ["deprecated"]=false },
-	[2]= { ["name"]="Non-pipelined File Transfer", ["deprecated"]=true },
-	[3]= { ["name"]="Non-pipelined Form Transfer", ["deprecated"]=true },
-	[4]= { ["name"]="Socket", ["deprecated"]=false },
-	[5]= { ["name"]="Pipelined File Transfer", ["deprecated"]=false },
-	[6]= { ["name"]="Pipelined Form Transfer", ["deprecated"]=false },
-	[7]= { ["name"]="Remote Procedure Call", ["deprecated"]=false },
+	[DDT2_TYPE_STATELESS]= { ["name"]="Stateless", ["deprecated"]=false },
+	[DDT2_TYPE_GENERAL]= { ["name"]="General", ["deprecated"]=false },
+	[DDT2_TYPE_FILE_XFER]= { ["name"]="Non-pipelined File Transfer", ["deprecated"]=true },
+	[DDT2_TYPE_FRM_XFER]= { ["name"]="Non-pipelined Form Transfer", ["deprecated"]=true },
+	[DDT2_TYPE_SOCK]= { ["name"]="Socket", ["deprecated"]=false },
+	[DDT2_TYPE_PPFILE_XFER]= { ["name"]="Pipelined File Transfer", ["deprecated"]=false },
+	[DDT2_TYPE_PPFRM_XFER]= { ["name"]="Pipelined Form Transfer", ["deprecated"]=false },
+	[DDT2_TYPE_RPC]= { ["name"]="Remote Procedure Call", ["deprecated"]=false },
+	[DDT2_TYPE_WARMUP]= { ["name"]="Radio warm-up frame (padding)", ["deprecated"]=false },
 }
 
 local ddt2_stateless_types = {
-	[0]= { ["name"]="Default", ["deprecated"]=false },
-	[1]= { ["name"]="Ping Request", ["deprecated"]=false },
-	[2]= { ["name"]="Ping Reply", ["deprecated"]=false },
-	[3]= { ["name"]="Echo Request", ["deprecated"]=false },
-	[4]= { ["name"]="Echo Reply", ["deprecated"]=false },
-	[5]= { ["name"]="Status Report", ["deprecated"]=false },
+	[DDT2_STLESS_DEFAULT]= { ["name"]="Default", ["deprecated"]=false },
+	[DDT2_STLESS_PRQ]= { ["name"]="Ping Request", ["deprecated"]=false },
+	[DDT2_STLESS_PRP]= { ["name"]="Ping Reply", ["deprecated"]=false },
+	[DDT2_STLESS_ERQ]= { ["name"]="Echo Request", ["deprecated"]=false },
+	[DDT2_STLESS_ERP]= { ["name"]="Echo Reply", ["deprecated"]=false },
+	[DDT2_STLESS_STATUS]= { ["name"]="Status Report", ["deprecated"]=false },
 }
 
 local ddt2_status = {
@@ -125,10 +138,11 @@ local function ddt2_crc16 ( buffer)
 	while( i < len ) do
 		if ( i ~= 5 and i ~= 6 ) then
 			checksum = ddt2_crc_update( checksum, buffer( i, 1):uint())
-		else 
+		else
+			-- Pad null bytes in place of checksum
 			checksum = ddt2_crc_update( checksum, 0)
 		end
-		
+
 		i = i + 1
 	end
 	
@@ -154,7 +168,10 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 	while ( i < length-5 ) do
 		if ( buffer( i, 1):uint() == DDT2_ESC_CHAR  and i < length-6 ) then
 			-- Append the next escaped character
-			ba_payload:append( ByteArray.new( string.format("%02X", bit.bxor (buffer(i+1,1):uint(), DDT2_OFFSET)) ) )
+			local esc_char = buffer(i+1,1):uint() - DDT2_OFFSET
+			if ( esc_char < 0 ) then esc_char = esc_char + 256 end
+			
+			ba_payload:append( ByteArray.new( string.format("%02X", esc_char) ) )
 			i = i + 1
 		else
 			-- Add the current character
@@ -164,12 +181,12 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 		i = i + 1
 	end
 	
-	local payload_tvb = ba_payload:tvb( "DDT2 Payload" )	
+	local payload_tvb = ba_payload:tvb( "DDT2 Frame" )	
 	
 	--------------------------------------------------------------------
 	-- DDT2 Header
 	--------------------------------------------------------------------
-	local header_tree = subtree:add( p_ddt2, payload_tvb( 0, 25), "DDT2 Header")
+	local header_tree = subtree:add( p_ddt2, payload_tvb( 0, 25), "DDT2 Frame Header")
 
 	-- Magic header
 	local magic_hdr = payload_tvb( 0, 1):uint()
@@ -202,16 +219,26 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 	local mesg_type = payload_tvb( 4, 1):uint()	
 	local mesg_type_tree = header_tree:add( p_ddt2, payload_tvb( 4, 1), "Frame Type: " )
 	if( fif( compressed_payload,  ddt2_stateless_types[mesg_type], ddt2_frame_type[mesg_type]) ~= nil ) then
-		mesg_type_tree.text = mesg_type_tree.text .. fif( compressed_payload,  ddt2_stateless_types[mesg_type]["name"], ddt2_frame_type[mesg_type]["name"]) .. " (" .. mesg_type .. ")"
-		if ( ddt2_frame_type[mesg_type]["deprecated"] == true ) then
-			mesg_type_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Obsolete Message Type")
+		local type_name, type_deprecated
+		
+		if ( compressed_payload ) then
+			type_name = ddt2_stateless_types[mesg_type]["name"]
+			type_deprecated = ddt2_stateless_types[mesg_type]["deprecated"]
+		else
+			type_name = ddt2_frame_type[mesg_type]["name"]
+			type_deprecated = ddt2_frame_type[mesg_type]["deprecated"]
 		end
-		pinfo.cols.info = "DDT2, " .. fif( compressed_payload,  ddt2_stateless_types[mesg_type]["name"], ddt2_frame_type[mesg_type]["name"])
+
+		mesg_type_tree.text = mesg_type_tree.text .. type_name .. " (" .. mesg_type .. ")"
+		if ( type_deprecated == true ) then
+			mesg_type_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Deprecated Message Type")
+		end
+		pinfo.cols.info = type_name
 		
 	else
 		mesg_type_tree.text = mesg_type_tree.text .. " Unknown (" .. mesg_type .. ")"
 		mesg_type_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Undocumented Message Type")
-		pinfo.cols.info = "DDT2, unknown type"
+		pinfo.cols.info = "[Unknown Frame Type]"
 		
 	end
 
@@ -247,7 +274,8 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 		local inner_type = nil
 		
 		if ( compressed_payload == true ) then
-			body = body:uncompress_zlib()
+			local status, decomp_tvb = pcall(function() return body:uncompress_zlib() end)
+			if ( status ) then body = decomp_tvb else body = body:uncompress() end
 			
 			-- Type is embedded in first byte of the Uncompressed payload
 			inner_type = tonumber( body( 0, 1):string())
@@ -257,10 +285,15 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 		-- DDT2 Body
 		--------------------------------------------------------------------
 		
-		local body_tree = subtree:add( p_ddt2, body, "DDT2 Body")
+		local body_tree = subtree:add( p_ddt2, body, "DDT2 Frame Body")
 		
 		if( compressed_payload == false ) then
-			if ( ddt2_is_valid_fix( body) == true ) then
+			if ( mesg_type == DDT2_TYPE_WARMUP ) then
+				--pinfo.cols.info = ddt2_frame_type[DDT2_TYPE_WARMUP]
+				body_tree:add_expert_info( PI_UNDECODED, PI_CHAT, "Padding data to warmup power amplifier")
+				return
+				
+			elseif ( ddt2_is_valid_fix( body) == true ) then
 				-- TODO: GPS Fix
 				
 			else
