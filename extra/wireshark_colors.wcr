@@ -21,6 +21,8 @@
 @HTTP@http || tcp.port == 80 || http2@[58596,65535,51143][4626,10023,11822]
 @DCERPC@dcerpc@[51143,38807,65535][4626,10023,11822]
 @APRS@aprs@[62708,53456,46003][0,0,0]
+@DDT2 Warmup@ddt2 and _ws.expert.group == "Undecoded" and _ws.expert.severity == "Chat"@[65535,65535,65535][47802,48573,46774]
+@DDT2@ddt2@[65535,62451,54998][4626,10023,11822]
 @AX.25 LAPB SABME@ax25.ctl == 0x7f@[41120,41120,41120][27499,22102,3341]
 @AX.25 LAPB SABM@ax25.ctl == 0x3f@[41120,41120,41120][4626,10023,11822]
 @AX.25 LAPB Ack@ax25.ctl == 0x73 || (ax25.ctl.ftype_su == 0x1 and ax25.ctl.ftype_s == 0x0)@[59367,59110,65535][4369,33667,20303]
