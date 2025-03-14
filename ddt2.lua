@@ -29,7 +29,20 @@ local DDT2_STLESS_ERQ = 3
 local DDT2_STLESS_ERP = 4
 local DDT2_STLESS_STATUS = 5
 
+-------------------------------------------------------------------------------
+-- Fields
+-------------------------------------------------------------------------------
 
+
+local pf_ddt2_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
+local pf_ddt2_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
+local pf_ddt2_seq  = ProtoField.uint16( proto_shortname .. ".seq" , "Sequence", base.DEC)
+local pf_ddt2_sess = ProtoField.uint8 ( proto_shortname .. ".sess", "Session ID", base.DEC)
+local pf_ddt2_len  = ProtoField.uint16( proto_shortname .. ".len" , "Length", base.DEC)
+
+p_ddt2.fields = {
+	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_len
+}
 
 -------------------------------------------------------------------------------
 -- Lookup tables
@@ -209,11 +222,11 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 	-- Sequence number
 	local seq = payload_tvb( 1, 2):uint()
-	header_tree:add( p_ddt2, payload_tvb( 1, 2), "Sequence: " .. seq )
+	header_tree:add( pf_ddt2_seq, payload_tvb( 1, 2))
 
 	-- Session ID
 	local session = payload_tvb( 3, 1):uint()
-	header_tree:add( p_ddt2, payload_tvb( 3, 1), "Session ID: " .. session )
+	header_tree:add( pf_ddt2_sess, payload_tvb( 3, 1))
 
 	-- Type
 	local mesg_type = payload_tvb( 4, 1):uint()	
@@ -248,15 +261,15 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 	-- Length
 	local mesg_len = payload_tvb( 7, 2):uint()
-	header_tree:add( p_ddt2, payload_tvb( 7, 2), "Length: " .. mesg_len )
+	header_tree:add( pf_ddt2_len, payload_tvb( 7, 2))
 
 	-- Source
 	local source = payload_tvb( 9, 8):string():gsub("~", "")
-	header_tree:add( p_ddt2, payload_tvb( 9, 8), "Source: " .. source )
+	header_tree:add( pf_ddt2_src, payload_tvb( 9, 8), source)
 
 	-- Destination
 	local destination = payload_tvb( 17, 8):string():gsub("~", "")
-	header_tree:add( p_ddt2, payload_tvb( 17, 8), "Destination: " .. destination )
+	header_tree:add( pf_ddt2_dst, payload_tvb( 17, 8), destination )
 
 	-- Validate Checksum
 	local computed_checksum = ddt2_crc16( payload_tvb())
