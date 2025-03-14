@@ -7,6 +7,17 @@ local proto_fullname  = "D-Rats Data Transport 2"
 -- Protocol Definition
 p_ddt2 = Proto ( proto_shortname, proto_fullname)
 
+-- Direction info (shim for versions < 3.4.4)
+if( P2P_DIR_RECV == nil ) then
+	P2P_DIR_UNKNOWN = -1
+	P2P_DIR_SENT    =  0
+	P2P_DIR_RECV    =  1
+end
+
+-------------------------------------------------------------------------------
+-- Constants
+-------------------------------------------------------------------------------
+
 local DDT2_ESC_CHAR = 0x3D
 local DDT2_OFFSET   = 0x40
 
@@ -52,13 +63,14 @@ local DDT2_DYNSESS_REQACK = 5
 local agwpe_status, f_agwpe_src = pcall( Field.new, "agwpe.src")
 
 -- My own fields
-local pf_ddt2_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
-local pf_ddt2_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
-local pf_ddt2_seq  = ProtoField.uint16( proto_shortname .. ".seq" , "Sequence", base.DEC)
-local pf_ddt2_sess = ProtoField.uint8 ( proto_shortname .. ".sess", "Session ID", base.DEC)
-local pf_ddt2_type = ProtoField.uint8 ( proto_shortname .. ".type", "Type", base.DEC)
-local pf_ddt2_len  = ProtoField.uint16( proto_shortname .. ".len" , "Length", base.DEC)
-local pf_ddt2_loop = ProtoField.bool  ( proto_shortname .. ".loopback" , "Loopback")
+local pf_ddt2_magic = ProtoField.uint8 ( proto_shortname .. ".magic" , "Magic Header", base.DEC)
+local pf_ddt2_src   = ProtoField.string( proto_shortname .. ".src"   , "Source", base.ASCII)
+local pf_ddt2_dst   = ProtoField.string( proto_shortname .. ".dst"   , "Destination", base.ASCII)
+local pf_ddt2_seq   = ProtoField.uint16( proto_shortname .. ".seq"   , "Sequence", base.DEC)
+local pf_ddt2_sess  = ProtoField.uint8 ( proto_shortname .. ".sess"  , "Session ID", base.DEC)
+local pf_ddt2_type  = ProtoField.uint8 ( proto_shortname .. ".type"  , "Type", base.DEC)
+local pf_ddt2_len   = ProtoField.uint16( proto_shortname .. ".len"   , "Length", base.DEC)
+local pf_ddt2_loop  = ProtoField.bool  ( proto_shortname .. ".loopback" , "Loopback")
 
 p_ddt2.fields = {
 	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_type, pf_ddt2_len
@@ -288,15 +300,15 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 	if ( magic_hdr == DDT2_MAGIC_COMP ) then
 		-- DEFLATE Compressed Payload
-		header_tree:add( p_ddt2, payload_tvb( 0, 1), "Magic header: Compressed payload" )
+		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Compressed payload" )
 		compressed_payload = true
 		
 	elseif ( magic_hdr == DDT2_MAGIC_UCMP ) then
 		-- Uncompressed Payload
-		header_tree:add( p_ddt2, payload_tvb( 0, 1), "Magic header: Uncompressed payload" )
+		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Uncompressed payload" )
 		
 	else
-		local magic_tree = header_tree:add( p_ddt2, payload_tvb( 0, 1), "Magic header: Unknown payload" )
+		local magic_tree = header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Unknown payload" )
 		magic_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Unknown Payload format")
 		return
 	end
@@ -341,8 +353,8 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 	end
 	
 	-- TODO: Hide loopback packets
-	if ( agwpe_status ) then
-		local agwpe_src = f_agwpe_src().value
+	if ( pinfo.cols.direction ~= nil and pinfo.cols.direction == P2P_DIR_RECV ) then
+		--local agwpe_src = f_agwpe_src().value
 		--[[ if ( agwpe_src ~= nil and agwpe_src ~= "" and source == mycall ) then
 			pinfo.hidden = true 
 			return
