@@ -9,6 +9,7 @@ p_ddt2 = Proto ( proto_shortname, proto_fullname)
 
 local DDT2_ESC_CHAR = 0x3D
 local DDT2_OFFSET   = 0x40
+
 local DDT2_MAGIC_COMP = 0xDD
 local DDT2_MAGIC_UCMP = 0x22
 
@@ -29,6 +30,20 @@ local DDT2_STLESS_ERQ = 3
 local DDT2_STLESS_ERP = 4
 local DDT2_STLESS_STATUS = 5
 
+local DDT2_SESSION_CHAT = 1
+local DDT2_SESSION_RPC = 2
+local DDT2_SESSION_ZERO = 0
+
+
+local DDT2_RPC_REQ = 0
+local DDT2_RPC_ACK = 1
+
+local DDT2_DYNSESS_SYN = 1
+local DDT2_DYNSESS_ACK = 2
+local DDT2_DYNSESS_NAK = 3
+local DDT2_DYNSESS_DATA = 4
+local DDT2_DYNSESS_REQACK = 5
+
 -------------------------------------------------------------------------------
 -- Fields
 -------------------------------------------------------------------------------
@@ -38,10 +53,11 @@ local pf_ddt2_src  = ProtoField.string( proto_shortname .. ".src" , "Source", ba
 local pf_ddt2_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
 local pf_ddt2_seq  = ProtoField.uint16( proto_shortname .. ".seq" , "Sequence", base.DEC)
 local pf_ddt2_sess = ProtoField.uint8 ( proto_shortname .. ".sess", "Session ID", base.DEC)
+local pf_ddt2_type = ProtoField.uint8 ( proto_shortname .. ".type", "Type", base.DEC)
 local pf_ddt2_len  = ProtoField.uint16( proto_shortname .. ".len" , "Length", base.DEC)
 
 p_ddt2.fields = {
-	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_len
+	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_type, pf_ddt2_len
 }
 
 -------------------------------------------------------------------------------
@@ -68,6 +84,20 @@ local ddt2_stateless_types = {
 	[DDT2_STLESS_ERQ]= { ["name"]="Echo Request", ["deprecated"]=false },
 	[DDT2_STLESS_ERP]= { ["name"]="Echo Reply", ["deprecated"]=false },
 	[DDT2_STLESS_STATUS]= { ["name"]="Status Report", ["deprecated"]=false },
+}
+
+local ddt2_rpc_types = {
+	[DDT2_RPC_REQ]= { ["name"]="RPC Request", ["deprecated"]=false },
+	[DDT2_RPC_ACK]= { ["name"]="RPC Answer", ["deprecated"]=false },
+}
+
+local ddt2_dynsess_types = {
+	[DDT2_DYNSESS_SYN]= { ["name"]="SYN", ["deprecated"]=false },
+	[DDT2_DYNSESS_ACK]= { ["name"]="ACK", ["deprecated"]=false },
+	[DDT2_DYNSESS_NAK]= { ["name"]="NAK", ["deprecated"]=false },
+	[DDT2_DYNSESS_DATA]= { ["name"]="Data", ["deprecated"]=false },
+	[DDT2_DYNSESS_REQACK]= { ["name"]="Request ACK", ["deprecated"]=false },
+	[DDT2_TYPE_WARMUP]= { ["name"]="Radio warm-up frame (padding)", ["deprecated"]=false },
 }
 
 local ddt2_status = {
@@ -162,6 +192,51 @@ local function ddt2_crc16 ( buffer)
 	return checksum
 end
 
+-- Decode type
+local function decode_mesg_type ( buffer, pinfo, tree)
+	local session = buffer( 3, 1):uint()
+	local ftype = buffer( 4, 1):uint()
+	local name = nil
+	local deprecated = false
+	
+	if ( session == DDT2_SESSION_CHAT ) then
+		-- Chat Session
+		if ( ddt2_stateless_types[ftype] ~= nil ) then
+			name = ddt2_stateless_types[ftype]["name"]
+			deprecated = ddt2_stateless_types[ftype]["deprecated"]
+		end
+		
+	elseif ( session == DDT2_SESSION_RPC ) then
+		-- RPC Session
+		if ( ddt2_rpc_types[ftype] ~= nil ) then
+			name = ddt2_rpc_types[ftype]["name"]
+			deprecated = ddt2_rpc_types[ftype]["deprecated"]
+		end
+		
+	else
+		-- Dynamic Session
+		if ( ddt2_dynsess_types[ftype] ~= nil ) then
+			name = ddt2_dynsess_types[ftype]["name"]
+			deprecated = ddt2_dynsess_types[ftype]["deprecated"]
+		end
+
+	end
+	
+	if ( deprecated == true ) then
+		tree:add_expert_info( PI_DEPRECATED, PI_WARN, "Deprecated Message Type")
+	end
+	
+	if ( name == nil ) then
+		name = "Unknown"
+		tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Undocumented Message Type")
+		pinfo.cols.info = "[Unknown Frame Type]"
+	else
+		pinfo.cols.info = name
+	end
+	
+	return name .. " (" .. ftype .. ")"
+end
+
 local function ddt2_is_valid_fix ( buffer)
 	-- TODO: Validate presence of $GPGGA,$GPRMC or $$CRC in frame (first two are NMEA sentences, the last is an APRS sentence)
 	return false
@@ -230,31 +305,9 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 	-- Type
 	local mesg_type = payload_tvb( 4, 1):uint()	
-	local mesg_type_tree = header_tree:add( p_ddt2, payload_tvb( 4, 1), "Frame Type: " )
-	if( fif( compressed_payload,  ddt2_stateless_types[mesg_type], ddt2_frame_type[mesg_type]) ~= nil ) then
-		local type_name, type_deprecated
-		
-		if ( compressed_payload ) then
-			type_name = ddt2_stateless_types[mesg_type]["name"]
-			type_deprecated = ddt2_stateless_types[mesg_type]["deprecated"]
-		else
-			type_name = ddt2_frame_type[mesg_type]["name"]
-			type_deprecated = ddt2_frame_type[mesg_type]["deprecated"]
-		end
-
-		mesg_type_tree.text = mesg_type_tree.text .. type_name .. " (" .. mesg_type .. ")"
-		if ( type_deprecated == true ) then
-			mesg_type_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Deprecated Message Type")
-		end
-		pinfo.cols.info = type_name
-		
-	else
-		mesg_type_tree.text = mesg_type_tree.text .. " Unknown (" .. mesg_type .. ")"
-		mesg_type_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Undocumented Message Type")
-		pinfo.cols.info = "[Unknown Frame Type]"
-		
-	end
-
+	local mesg_type_tree = header_tree:add( pf_ddt2_type, payload_tvb( 4, 1), mesg_type, "Type: " )
+	mesg_type_tree.text = mesg_type_tree.text .. decode_mesg_type( payload_tvb, pinfo, mesg_type_tree)
+	
 	-- Checksum
 	local checksum = payload_tvb( 5, 2):uint()
 	local checksum_tree = header_tree:add( p_ddt2, payload_tvb( 5, 2), "Checksum: " .. string.format( "%04X", checksum) )
@@ -280,7 +333,9 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 		pinfo.cols.info:append( " [Malformed]")
 		return
 	end
-
+	
+	-- TODO: Hide loopback packets
+	
 	-- Decode body if applicable
 	if ( mesg_len > 0 ) then
 		local body = payload_tvb( 25)
@@ -290,8 +345,11 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 			local status, decomp_tvb = pcall(function() return body:uncompress_zlib() end)
 			if ( status ) then body = decomp_tvb else body = body:uncompress() end
 			
-			-- Type is embedded in first byte of the Uncompressed payload
-			inner_type = tonumber( body( 0, 1):string())
+			
+			if ( session == DDT2_SESSION_CHAT and mesg_type == DDT2_STLESS_STATUS ) then 
+				-- In status reports, the inner type is the decimal value of the first byte.
+				inner_type = tonumber( body( 0, 1):string())
+			end
 		end
 		
 		--------------------------------------------------------------------
@@ -300,33 +358,46 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 		
 		local body_tree = subtree:add( p_ddt2, body, "DDT2 Frame Body")
 		
-		if( compressed_payload == false ) then
-			if ( mesg_type == DDT2_TYPE_WARMUP ) then
-				--pinfo.cols.info = ddt2_frame_type[DDT2_TYPE_WARMUP]
-				body_tree:add_expert_info( PI_UNDECODED, PI_CHAT, "Padding data to warmup power amplifier")
-				return
+		if( session == DDT2_SESSION_CHAT ) then
+			-- Chat Session
+			
+			if ( mesg_type == DDT2_STLESS_STATUS ) then
+				-- Status Report
+				body_tree:add( p_ddt2, body( 0,1), "Message type: " .. ddt2_status[ inner_type] .. " (" .. inner_type .. ")")
+				body_tree:add( p_ddt2, body( 1), "Message content: " .. body( 1):string())
+				pinfo.cols.info = "Status report from " .. source .. ": " .. ddt2_status[ inner_type] .. ", \"" .. body( 1):string() .. "\""
 				
-			elseif ( ddt2_is_valid_fix( body) == true ) then
-				-- TODO: GPS Fix
+			elseif ( mesg_type == DDT2_STLESS_PRQ ) then
+			elseif ( mesg_type == DDT2_STLESS_PRP ) then
+			elseif ( mesg_type == DDT2_STLESS_ERQ ) then
+			elseif ( mesg_type == DDT2_STLESS_ERP ) then
+				-- TODO: Ping and Echo Requests
 				
 			else
 				-- Instant Message
+				if ( ddt2_is_valid_fix( body) == true ) then
+					-- TODO: GPS Fix
+					return
+				end
+				
 				body_tree:add( p_ddt2, body(), "DDT, Stateless, Instant message: " .. body():string())
 				if ( destination == "CQCQCQ" ) then
 					pinfo.cols.info = "Broadcast message from " .. source .. ": " .. body():string()
 				else
 					pinfo.cols.info = "Instant message from " .. source .. " to " .. destination .. ": " .. body():string()
 				end
-				
 			end
 			
-		elseif ( mesg_type == nil ) then
-			-- TODO: Stateless Remote Procedure Call
-			
-		elseif ( mesg_type == DDT2_STLESS_STATUS ) then
-			body_tree:add( p_ddt2, body( 0,1), "Message type: " .. ddt2_status[ inner_type] .. " (" .. inner_type .. ")")
-			body_tree:add( p_ddt2, body( 1), "Message content: " .. body( 1):string())
-			pinfo.cols.info = ddt2_status[ inner_type] .. " from " .. source .. ": \"" .. body( 1):string() .. "\""
+		elseif ( session == DDT2_SESSION_RPC ) then
+			-- TODO: Remote Procedure Call
+
+		else
+			-- Dynamic Session
+			if ( mesg_type == DDT2_TYPE_WARMUP ) then
+				--pinfo.cols.info = ddt2_frame_type[DDT2_TYPE_WARMUP]
+				body_tree:add_expert_info( PI_UNDECODED, PI_CHAT, "Padding data to warmup power amplifier")
+				return
+			end
 		end
 	end
 end
