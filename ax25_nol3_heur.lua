@@ -39,16 +39,17 @@ function p_ax25_nol3_heur.dissector(buffer, pinfo, tree)
     
 	tree:add( p_ax25_nol3_heur, buffer())
 	
+    -- Detect D-Rats Data Transport Payload
+    if ( length > 10 and buffer( 0, 5):string() == "[SOB]" and buffer( length-5, 5):string() == "[EOB]" ) then
+    	Dissector.get("ddt2"):call( buffer, pinfo, tree)
+    	return
+    end
+
     -- Only invoke APRS dissector for UI frames
     if ( p_ax25_nol3_heur_is_aprs(buffer, pinfo, tree) ) then 
     	Dissector.get("aprs"):call( buffer, pinfo, tree)
     	return 0
     end
-    
-    -- Detect D-Rats Data Transport Payload
-    if ( length > 10 and buffer( 0, 5):string() == "[SOB]" and buffer( length-5, 5):string() == "[EOB]" ) then
-    	Dissector.get("ddt2"):call( buffer, pinfo, tree)
-    end    
 end
 
 -- Register for PID 0xF0
