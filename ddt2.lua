@@ -48,17 +48,23 @@ local DDT2_DYNSESS_REQACK = 5
 -- Fields
 -------------------------------------------------------------------------------
 
+-- Other protocols' fields
+local agwpe_status, f_agwpe_src = pcall( Field.new, "agwpe.src")
 
+-- My own fields
 local pf_ddt2_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
 local pf_ddt2_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
 local pf_ddt2_seq  = ProtoField.uint16( proto_shortname .. ".seq" , "Sequence", base.DEC)
 local pf_ddt2_sess = ProtoField.uint8 ( proto_shortname .. ".sess", "Session ID", base.DEC)
 local pf_ddt2_type = ProtoField.uint8 ( proto_shortname .. ".type", "Type", base.DEC)
 local pf_ddt2_len  = ProtoField.uint16( proto_shortname .. ".len" , "Length", base.DEC)
+local pf_ddt2_loop = ProtoField.bool  ( proto_shortname .. ".loopback" , "Loopback")
 
 p_ddt2.fields = {
 	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_type, pf_ddt2_len
 }
+
+local p_ddt2_stream_attrs = {}
 
 -------------------------------------------------------------------------------
 -- Lookup tables
@@ -335,6 +341,14 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 	end
 	
 	-- TODO: Hide loopback packets
+	if ( agwpe_status ) then
+		local agwpe_src = f_agwpe_src().value
+		--[[ if ( agwpe_src ~= nil and agwpe_src ~= "" and source == mycall ) then
+			pinfo.hidden = true 
+			return
+		end -- ]]--
+	end
+	
 	
 	-- Decode body if applicable
 	if ( mesg_len > 0 ) then
