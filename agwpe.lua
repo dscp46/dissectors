@@ -1,14 +1,29 @@
--- agwpe.lua
--- AGWPE protocol
--- Spec reference: docs/agwpe-api.htm
+-- agwpe.lua - AGW Packet Engine protocol
+-- Spec reference: docs/agwpe-api.md
 
-p_agwpe = Proto ( "agwpe", "AGWPE Protocol")
+-- Some module-specific constants
+local proto_shortname = "agwpe"
+local proto_fullname  = "AGWPE Protocol"
+
+-- Protocol Definition
+p_agwpe = Proto ( proto_shortname, proto_fullname)
 
 local settings = 
 {
 	enabled = true,
 	port = 8000,
 	max_len = 1024
+}
+
+-- Fields
+local pf_agwpe_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
+local pf_agwpe_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
+local pf_agwpe_port  = ProtoField.uint8( proto_shortname .. ".port" , "Engine Port", base.DEC)
+local pf_agwpe_kind = ProtoField.string( proto_shortname .. ".kind", "DataKind", base.ASCII)
+local pf_agwpe_pid   = ProtoField.uint8( proto_shortname .. ".pid" , "PID", base.DEC)
+
+p_agwpe.fields = {
+	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid
 }
 
 --- [ Dissector helper functions ] ---
@@ -93,24 +108,24 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	local agw_rsv2     = buffer(5,1)
 	local agw_pid      = buffer(6,1):uint()
 	local agw_rsv3     = buffer(7,1)
-	local agw_callfrom = agw_get_string( buffer(8,10):tvb())
-	local agw_callto   = agw_get_string( buffer(18,10):tvb())
+	local agw_callfrom = agw_get_string( buffer(8,10):tvb()):gsub('%s+', '')
+	local agw_callto   = agw_get_string( buffer(18,10):tvb()):gsub('%s+', '')
 	local agw_datalen  = buffer(28,4):le_uint()
 	local agw_userrsv  = buffer(32,4):uint()
 
 	-- Subtree title
-	local subtree_title = "AGWPE Protocol, Src: \"" .. agw_callfrom .. "\", Dst: \"" .. agw_callto .. "\", PID:" .. agw_pid
+	local subtree_title = "AGWPE Protocol, Src: \"" .. agw_callfrom .. "\", Dst: \"" .. agw_callto .. "\", PID: " .. agw_pid
 
 	-- Subtree
 	local subtree = tree:add( p_agwpe, buffer(), subtree_title)
-	subtree:add( buffer( 0, 1), "Engine Port: " .. agw_port)
+	subtree:add( pf_agwpe_port, buffer( 0, 1), agw_port, "Engine Port: " .. agw_port)
 	subtree:add( buffer( 1, 3), "Reserved")
-	subtree:add( buffer( 4, 1), "DataKind: ".. agw_get_tx_dkind_name(agw_datakind))
+	subtree:add( pf_agwpe_kind, buffer( 4, 1), buffer( 4, 1):string(), "DataKind: ".. agw_get_tx_dkind_name(agw_datakind))
 	subtree:add( buffer( 5, 1), "Reserved")
-	subtree:add( buffer( 6, 1), "PID: " .. agw_pid)
+	subtree:add( pf_agwpe_pid, buffer( 6, 1), agw_pid)
 	subtree:add( buffer( 7, 1), "Reserved")
-	subtree:add( buffer( 8,10), "Call From: \"" .. agw_callfrom .. "\"")
-	subtree:add( buffer(18,10), "Call To: \"" .. agw_callto .. "\"")
+	subtree:add( pf_agwpe_src, buffer( 8,10), agw_callfrom, "Source: \"" .. agw_callfrom .. "\"")
+	subtree:add( pf_agwpe_dst, buffer(18,10), agw_callto, "Destination: \"" .. agw_callto .. "\"")
 	subtree:add_le( buffer(28, 4), "Data length: ".. agw_datalen)
 	if( agw_datalen ~= 0 ) then
 		-- The packet has a payload
