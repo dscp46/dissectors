@@ -18,8 +18,8 @@ packet-beta
   32-39: "Type"
   40-55: "Checksum"
   56-71: "Length"
-  72-135: "Source Callsign"
-  136-199: "Destination Port"
+  72-135: "Source Callsign (string)"
+  136-199: "Destination Callsign (string)"
   200-223: "Body / Payload (variable length)"
 ```
 
