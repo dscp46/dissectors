@@ -37,7 +37,7 @@ The `Magic` field holds either of the following value:
 
 The `Checksum` is computed using the CRC16-CCITT algorithm on the full message, with the checksum bytes set to `0x0000`. 
 
-## How to classify packets
+## How to classify message payload
 
 In the following graph:
   * `S` refers to the Session field value in the header
