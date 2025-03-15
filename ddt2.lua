@@ -63,7 +63,7 @@ local DDT2_DYNSESS_REQACK = 5
 local agwpe_status, f_agwpe_src = pcall( Field.new, "agwpe.src")
 
 -- My own fields
-local pf_ddt2_magic = ProtoField.uint8 ( proto_shortname .. ".magic" , "Magic Header", base.DEC)
+local pf_ddt2_magic = ProtoField.uint8 ( proto_shortname .. ".magic" , "Magic Header", base.HEX)
 local pf_ddt2_src   = ProtoField.string( proto_shortname .. ".src"   , "Source", base.ASCII)
 local pf_ddt2_dst   = ProtoField.string( proto_shortname .. ".dst"   , "Destination", base.ASCII)
 local pf_ddt2_seq   = ProtoField.uint16( proto_shortname .. ".seq"   , "Sequence", base.DEC)
@@ -300,15 +300,15 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 	if ( magic_hdr == DDT2_MAGIC_COMP ) then
 		-- DEFLATE Compressed Payload
-		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Compressed payload" )
+		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), "Magic header: Compressed payload" )
 		compressed_payload = true
 		
 	elseif ( magic_hdr == DDT2_MAGIC_UCMP ) then
 		-- Uncompressed Payload
-		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Uncompressed payload" )
+		header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), "Magic header: Uncompressed payload" )
 		
 	else
-		local magic_tree = header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), magic_hdr, "Magic header: Unknown payload" )
+		local magic_tree = header_tree:add( pf_ddt2_magic, payload_tvb( 0, 1), "Magic header: Unknown payload" )
 		magic_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Unknown Payload format")
 		return
 	end
