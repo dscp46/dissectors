@@ -3,6 +3,14 @@
 > [!WARNING]
 > This document IS NOT a specification, rather a scratchbook which details how messages are encoded.
 
+## Message yEncoding
+Prior to being segmented, the messages are yEncoded with the following parameters:
+  * Begin marker: `[SOB]`
+  * End marker: `[SOB]`
+  * Escape character: `=` (`0x3D`)
+  * Forbidden characters: `0x00`, `0x11`, `0x13`, `0x1A`, `0xFD`, `0xFE`, `0xFF`
+  * Offset: 64
+
 ## Message formatting
 
 All fields, unless explicitely stated, are unsigned integers in the network order.
