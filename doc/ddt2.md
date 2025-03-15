@@ -27,6 +27,8 @@ The `Magic` field holds either of the following value:
   * `0x22` if the body / payload is not compressed.
   * `0xDD` if the body / payload is compressed using the DEFLATE algorithm.
 
+The `Checksum` is computed using the CRC16-CCITT algorithm on the full message, with the checksum bytes set to `0x0000`. 
+
 ## How to classify packets
 
 In the following graph:
