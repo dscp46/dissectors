@@ -42,7 +42,7 @@ The `Checksum` is computed using the CRC16-CCITT algorithm on the full message, 
 In the following graph:
   * `S` refers to the Session field value in the header
   * `T` refers to the Type field value in the header
-  * `It` refers to the Inner Type (first byte of the body, once uncompressed, if applicable).
+  * `It` refers to the Inner Type (ASCII decimal value of the first byte of the body, once uncompressed, if applicable).
 
 ```mermaid
 flowchart TD
