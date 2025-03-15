@@ -60,7 +60,7 @@ flowchart TD
     S2 -->|T: 1| RPCa((RPC Ack))
 
     Root -->|S: n| Sn((Dynamic))
-    Root((Session)) -->|0| S0((0 - Dyn))
+    Root((Session)) -->|S: 0| S0((0 - Dyn))
     S0 -->|T: 254| Wu((Warmup))
     Sn -->|T: 0| TSyn((SYN))
     S0 -->|T: 0| TSyn
