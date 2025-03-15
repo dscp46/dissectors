@@ -3,6 +3,14 @@
 > [!WARNING]
 > This document IS NOT a specification, rather a scratchbook which details how messages are encoded.
 
+## Message yEncoding
+Prior to being sent, the messages are yEncoded with the following parameters:
+  * Begin marker: `[SOB]`
+  * End marker: `[SOB]`
+  * Escape character: `=` (`0x3D`)
+  * Forbidden characters: `0x00`, `0x11`, `0x13`, `0x1A`, `0xFD`, `0xFE`, `0xFF`
+  * Offset: 64
+
 ## Message formatting
 
 All fields, unless explicitely stated, are unsigned integers in the network order.
@@ -18,8 +26,8 @@ packet-beta
   32-39: "Type"
   40-55: "Checksum"
   56-71: "Length"
-  72-135: "Source Callsign"
-  136-199: "Destination Port"
+  72-135: "Source Callsign (string)"
+  136-199: "Destination Callsign (string)"
   200-223: "Body / Payload (variable length)"
 ```
 
@@ -27,12 +35,14 @@ The `Magic` field holds either of the following value:
   * `0x22` if the body / payload is not compressed.
   * `0xDD` if the body / payload is compressed using the DEFLATE algorithm.
 
-## How to classify packets
+The `Checksum` is computed using the CRC16-CCITT algorithm on the full message, with the checksum bytes set to `0x0000`. 
+
+## How to classify message payload
 
 In the following graph:
   * `S` refers to the Session field value in the header
   * `T` refers to the Type field value in the header
-  * `It` refers to the Inner Type (first byte of the body, once uncompressed, if applicable).
+  * `It` refers to the Inner Type (ASCII decimal value of the first byte of the body, once uncompressed, if applicable).
 
 ```mermaid
 flowchart TD
@@ -60,7 +70,7 @@ flowchart TD
     S2 -->|T: 1| RPCa((RPC Ack))
 
     Root -->|S: n| Sn((Dynamic))
-    Root((Session)) -->|0| S0((0 - Dyn))
+    Root((Session)) -->|S: 0| S0((0 - Dyn))
     S0 -->|T: 254| Wu((Warmup))
     Sn -->|T: 0| TSyn((SYN))
     S0 -->|T: 0| TSyn
