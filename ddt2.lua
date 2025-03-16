@@ -74,9 +74,11 @@ local pf_ddt2_sess  = ProtoField.uint8 ( proto_shortname .. ".sess"  , "Session 
 local pf_ddt2_type  = ProtoField.uint8 ( proto_shortname .. ".type"  , "Type", base.DEC)
 local pf_ddt2_len   = ProtoField.uint16( proto_shortname .. ".len"   , "Length", base.DEC)
 local pf_ddt2_loop  = ProtoField.bool  ( proto_shortname .. ".loopback" , "Loopback")
+local pf_ddt2_sname = ProtoField.string( proto_shortname .. ".session.name"         , "Session Name"        , base.UNICODE)
+local pf_ddt2_sessid= ProtoField.uint8 ( proto_shortname .. ".session.allocated_id" , "Allocated Session ID", base.HEX)
 
 p_ddt2.fields = {
-	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_type, pf_ddt2_len
+	pf_ddt2_src, pf_ddt2_dst, pf_ddt2_seq, pf_ddt2_sess, pf_ddt2_type, pf_ddt2_len, pf_ddt2_loop, pf_ddt2_sname, pf_ddt2_sessid
 }
 
 local p_ddt2_stream_attrs = {}
@@ -500,6 +502,17 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 				--pinfo.cols.info = ddt2_frame_type[DDT2_TYPE_WARMUP]
 				body_tree:add_expert_info( PI_UNDECODED, PI_CHAT, "Padding data to warmup power amplifier")
 				return
+				
+			elseif ( mesg_type == DDT2_DYNSESS_FL_XFER or mesg_type == DDT2_DYNSESS_FR_XFER or mesg_type == DDT2_DYNSESS_SOCK ) then
+				-- New session
+				body_tree:add( pf_ddt2_sessid , body( 0, 1))
+				body_tree:add( pf_ddt2_sname, body( 1))
+				
+			elseif ( mesg_type == DDT2_DYNSESS_ACK ) then
+				-- Acknowedge
+				body_tree:add( p_ddt2, body( 0, 1), string.format( "%s's session ID: 0x%02X", destination, body( 0, 1):uint()) )
+				body_tree:add( p_ddt2, body( 1, 1), string.format( "%s's session ID: 0x%02X", source, body( 1, 1):uint()) )
+				
 			end
 		end
 	end
