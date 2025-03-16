@@ -135,7 +135,7 @@ sequenceDiagram
     note over Alice,Carol: Form Transfer Session<br/><br/>Alice -> Carol: Session Nb<br/>Carol -> Alice: Session Na
 
     note right of Alice: Tear down session from Session 0
-    Alice->>Carol: End (?? Sess: Nx, in decimal form)
-    Carol->>Alice: End (?? Sess: Nx, in decimal form)
-    Alice-->>Carol: End (?? Sess: Nx, in decimal form)
+    Alice->>Carol: End (Ur Sess: Nb, in decimal form)
+    Carol->>Alice: End (Ur Sess: Na, in decimal form)
+    Alice-->>Carol: End (My Sess: Na, in decimal form)
 ```
