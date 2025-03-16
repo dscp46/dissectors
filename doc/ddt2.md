@@ -132,7 +132,7 @@ sequenceDiagram
     Alice->>+Carol: Type: Form Xfer, My Sess: Na
     Carol-->>-Alice: Type: ACK, Ur Sess: Na, My Sess: Nb
 
-    note over Alice,Carol: File Transfer Session<br/><br/>Alice -> Carol: Session Nb<br/>Carol -> Alice: Session Na
+    note over Alice,Carol: Form Transfer Session<br/><br/>Alice -> Carol: Session Nb<br/>Carol -> Alice: Session Na
 
     note right of Alice: Tear down session from Session 0
     Alice->>Carol: End (?? Sess: Nx, in decimal form)
