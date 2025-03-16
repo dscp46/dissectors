@@ -54,6 +54,9 @@ local DDT2_DYNSESS_ACK = 2
 local DDT2_DYNSESS_NAK = 3
 local DDT2_DYNSESS_DATA = 4
 local DDT2_DYNSESS_REQACK = 5
+local DDT2_DYNSESS_FL_XFER = 7
+local DDT2_DYNSESS_FR_XFER = 8
+local DDT2_DYNSESS_SOCK = 9
 
 -------------------------------------------------------------------------------
 -- Fields
@@ -115,6 +118,9 @@ local ddt2_dynsess_types = {
 	[DDT2_DYNSESS_NAK]= { ["name"]="NAK", ["deprecated"]=false },
 	[DDT2_DYNSESS_DATA]= { ["name"]="Data", ["deprecated"]=false },
 	[DDT2_DYNSESS_REQACK]= { ["name"]="Request ACK", ["deprecated"]=false },
+	[DDT2_DYNSESS_FL_XFER]= { ["name"]="File Transfer Session", ["deprecated"]=false },
+	[DDT2_DYNSESS_FR_XFER]= { ["name"]="Form Transfer Session", ["deprecated"]=false },
+	[DDT2_DYNSESS_SOCK]= { ["name"]="Socket", ["deprecated"]=false },
 	[DDT2_TYPE_WARMUP]= { ["name"]="Radio warm-up frame (padding)", ["deprecated"]=false },
 }
 
@@ -178,6 +184,22 @@ local ddt2_crc_lut = {
 -- Ternary operator
 local function fif(condition, if_true, if_false)
 	if condition then return if_true else return if_false end
+end
+
+-- Find the next character
+local function find_next( buffer, val, skip)
+	local len = buffer:len()
+	if ( skip == nil ) then skip = 0 end
+	for i=skip , len-1 , 1 do
+		if( buffer(i,1):uint() == val ) then return i end 
+	end
+	return len
+end
+
+local function array_size( array)
+	local count = 0
+	for _ in pairs(array) do count = count + 1 end
+	return count
 end
 
 -- Checksum update function
@@ -258,6 +280,52 @@ end
 local function ddt2_is_valid_fix ( buffer)
 	-- TODO: Validate presence of $GPGGA,$GPRMC or $$CRC in frame (first two are NMEA sentences, the last is an APRS sentence)
 	return false
+end
+
+-- Parse RPC Request
+local function parse_rpc_request( buffer, tree)
+	local len = buffer():len()
+	local start=0
+	repeat
+		local gs = find_next( buffer, 0x1D, start )
+
+		if ( gs == len ) then
+			tree:add_expert_info( PI_MALFORMED, PI_WARN, "Malformed entry, group separator not found")
+			return
+		end
+		
+		local command = buffer(start, gs-start)
+		
+		local entry = tree:add( p_ddt2, command, "RPC Command: " .. command:string())
+		
+		if ( ddt2_rpc_jobs[command:string()] == nil ) then
+			entry:add_expert_info( PI_PROTOCOL, PI_ERROR, "Invalid RPC Command")
+		end
+		
+		start = gs+1
+	until ( start >= len )
+end
+
+-- Parse RPC Answer
+local function parse_rpc_answer( buffer, tree)
+	local len = buffer():len()
+	local start=0
+	repeat
+		-- Find next Unit Separator
+		local us = find_next( buffer, 0x1F, start )
+		
+		-- Find next Record Separator
+		local rs = find_next( buffer, 0x1E, start )
+		
+		local entry = tree:add( p_ddt2, buffer(start, rs-start), "Result entry")
+		if ( us == len ) then
+			entry:add_expert_info( PI_MALFORMED, PI_WARN, "Malformed entry, unit separator not found")
+			return
+		end
+		entry:add( p_ddt2, buffer( start, us-start), "Name: " .. buffer( start, us-start):string())
+		entry:add( p_ddt2, buffer( us+1, rs-us-1), "Value: " .. buffer( us+1, rs-us-1):string())
+		start = rs+1
+	until ( rs >= len )
 end
 
 function p_ddt2.dissector(buffer, pinfo, tree)
@@ -415,7 +483,16 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 			end
 			
 		elseif ( session == DDT2_SESSION_RPC ) then
-			-- TODO: Remote Procedure Call
+			-- Remote Procedure Call
+			if ( mesg_type == DDT2_RPC_REQ ) then
+				parse_rpc_request( body, body_tree)
+				
+			elseif ( mesg_type == DDT2_RPC_ACK ) then
+				parse_rpc_answer( body, body_tree)
+				
+			else
+				body_tree:add_expert_info( PI_UNDECODED, PI_WARN, "Undocumented RPC Type")
+			end
 
 		else
 			-- Dynamic Session
