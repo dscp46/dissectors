@@ -123,3 +123,19 @@ Stateful session: 4
 Pipelined File transfer: 8
 Pipelined Form transfer: 9
 Socket session: 7
+
+## Stateful session management
+
+```mermaid
+sequenceDiagram
+    note right of Alice: Set up session from Session 0
+    Alice->>+Carol: Type: Form Xfer, My Sess: Na
+    Carol-->>-Alice: Type: ACK, Ur Sess: Na, My Sess: Nb
+
+    note over Alice,Carol: File Transfer Session<br/><br/>Alice -> Carol: Session Nb<br/>Carol -> Alice: Session Na
+
+    note right of Alice: Tear down session from Session 0
+    Alice->>Carol: End (?? Sess: Nx, in decimal form)
+    Carol->>Alice: End (?? Sess: Nx, in decimal form)
+    Alice-->>Carol: End (?? Sess: Nx, in decimal form)
+```
