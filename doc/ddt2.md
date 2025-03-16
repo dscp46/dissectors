@@ -130,12 +130,12 @@ Socket session: 7
 sequenceDiagram
     note right of Alice: Set up session from Session 0
     Alice->>+Carol: Type: Form Xfer, My Sess: Na
-    Carol-->>-Alice: Type: ACK, Ur Sess: Na, My Sess: Nb
+    Carol->>-Alice: Type: ACK, Ur Sess: Na, My Sess: Nb
 
     note over Alice,Carol: Form Transfer Session<br/><br/>Alice -> Carol: Session Nb<br/>Carol -> Alice: Session Na
 
     note right of Alice: Tear down session from Session 0
     Alice->>Carol: Type: End (Ur Sess: Nb, in decimal form)
     Carol->>Alice: Type: End (Ur Sess: Na, in decimal form)
-    Alice-->>Carol: Type: End (My Sess: Na, in decimal form)
+    Alice->>Carol: Type: End (My Sess: Na, in decimal form)
 ```
