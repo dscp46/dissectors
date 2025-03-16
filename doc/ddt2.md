@@ -82,5 +82,44 @@ flowchart TD
     S0 -->|T: 3| TDat
     Sn -->|T: 4| TReqAck((ReqAck))
     S0 -->|T: 4| TReqAck
+    Sn -->|T: 5| STgen((Stateful Sess))
+    S0 -->|T: 5| STgen
+    Sn -->|T: 7| Socket((Socket))
+    S0 -->|T: 7| Socket
+    Sn -->|T: 8| FileXfer((File Xfer))
+    S0 -->|T: 8| FileXfer
+    Sn -->|T: 9| FormXfer((Form Xfer))
+    S0 -->|T: 9| FormXfer
 ```
 
+## Dynamic session ID:
+
+In control.py, derived from stateful
+
+```python
+T_PNG = 0
+T_END = 1
+T_ACK = 2
+T_NEW = 3
+
+T_NEW + base.T_GENERAL  : stateful.StatefulSession,
+T_NEW + base.T_FILEXFER : file.FileTransferSession,
+T_NEW + base.T_FORMXFER : form.FormTransferSession,
+T_NEW + base.T_SOCKET   : sock.SocketSession,
+```
+In base:
+```
+T_STATELESS = 0
+T_GENERAL = 1
+T_UNUSED2 = 2 # Old non-pipelined FileTransfer
+T_UNUSED3 = 3 # Old non-pipelined FormTransfer
+T_SOCKET = 4
+T_FILEXFER = 5
+T_FORMXFER = 6
+T_RPC = 7
+```
+
+Stateful session: 4
+Pipelined File transfer: 8
+Pipelined Form transfer: 9
+Socket session: 7
