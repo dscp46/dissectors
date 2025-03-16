@@ -15,15 +15,23 @@ local settings =
 	max_len = 1024
 }
 
+-- Direction info (shim for versions < 3.4.4)
+if( P2P_DIR_RECV == nil ) then
+	P2P_DIR_UNKNOWN = -1
+	P2P_DIR_SENT    =  0
+	P2P_DIR_RECV    =  1
+end
+
 -- Fields
 local pf_agwpe_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
 local pf_agwpe_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
 local pf_agwpe_port  = ProtoField.uint8( proto_shortname .. ".port" , "Engine Port", base.DEC)
 local pf_agwpe_kind = ProtoField.string( proto_shortname .. ".kind", "DataKind", base.ASCII)
 local pf_agwpe_pid   = ProtoField.uint8( proto_shortname .. ".pid" , "PID", base.DEC)
+local pf_agwpe_dir    = ProtoField.int8( proto_shortname .. ".direction" , "Direction")
 
 p_agwpe.fields = {
-	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid
+	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir
 }
 
 --- [ Dissector helper functions ] ---
@@ -93,6 +101,10 @@ local function is_dte_to_dce ( pinfo)
 	return pinfo.dst_port == settings.port
 end
 
+local function fif(condition, if_true, if_false)
+	if condition then return if_true else return if_false end
+end
+
 --- [ Protocol dissector ] ---
 function p_agwpe.dissector ( buffer, pinfo, tree)
 	-- Validate minimal packet length
@@ -118,6 +130,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 
 	-- Subtree
 	local subtree = tree:add( p_agwpe, buffer(), subtree_title)
+	subtree:add( pf_agwpe_dir, fif( is_dte_to_dce ( pinfo) == true, P2P_DIR_SENT, P2P_DIR_RECV), "[Direction: " .. fif(is_dte_to_dce ( pinfo) == true, "Outgoing", "Incoming") .. "]" )
 	subtree:add( pf_agwpe_port, buffer( 0, 1), agw_port, "Engine Port: " .. agw_port)
 	subtree:add( buffer( 1, 3), "Reserved")
 	subtree:add( pf_agwpe_kind, buffer( 4, 1), buffer( 4, 1):string(), "DataKind: ".. agw_get_tx_dkind_name(agw_datakind))
