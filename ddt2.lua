@@ -49,7 +49,7 @@ local DDT2_SESSION_ZERO = 0
 local DDT2_RPC_REQ = 0
 local DDT2_RPC_ACK = 1
 
-local DDT2_DYNSESS_SYN = 1
+local DDT2_DYNSESS_END = 1
 local DDT2_DYNSESS_ACK = 2
 local DDT2_DYNSESS_NAK = 3
 local DDT2_DYNSESS_DATA = 4
@@ -63,7 +63,8 @@ local DDT2_DYNSESS_SOCK = 9
 -------------------------------------------------------------------------------
 
 -- Other protocols' fields
-local agwpe_status, f_agwpe_src = pcall( Field.new, "agwpe.src")
+local agwpe_status, f_agwpe_dir = pcall( Field.new, "agwpe.direction")
+local f_tcp_stream = Field.new("tcp.stream")
 
 -- My own fields
 local pf_ddt2_magic = ProtoField.uint8 ( proto_shortname .. ".magic" , "Magic Header", base.HEX)
@@ -115,7 +116,7 @@ local ddt2_rpc_types = {
 }
 
 local ddt2_dynsess_types = {
-	[DDT2_DYNSESS_SYN]= { ["name"]="SYN", ["deprecated"]=false },
+	[DDT2_DYNSESS_END]= { ["name"]="END", ["deprecated"]=false },
 	[DDT2_DYNSESS_ACK]= { ["name"]="ACK", ["deprecated"]=false },
 	[DDT2_DYNSESS_NAK]= { ["name"]="NAK", ["deprecated"]=false },
 	[DDT2_DYNSESS_DATA]= { ["name"]="Data", ["deprecated"]=false },
@@ -332,6 +333,7 @@ end
 
 function p_ddt2.dissector(buffer, pinfo, tree)
 	local length = buffer:len()
+	local stream_id = f_tcp_stream().value
 	
 	if ( length <= 25 and buffer( 0, 5):string() ~= "[SOB]" and buffer( length-5, 5):string() ~= "[EOB]" ) then return end
 	
@@ -423,12 +425,20 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 	end
 	
 	-- TODO: Hide loopback packets
-	if ( pinfo.cols.direction ~= nil and pinfo.cols.direction == P2P_DIR_RECV ) then
-		--local agwpe_src = f_agwpe_src().value
-		--[[ if ( agwpe_src ~= nil and agwpe_src ~= "" and source == mycall ) then
-			pinfo.hidden = true 
+	if ( agwpe_status ) then
+	
+		if ( p_ddt2_stream_attrs[stream_id] == nil ) then p_ddt2_stream_attrs[stream_id] = {} end
+	
+		if ( p_ddt2_stream_attrs[stream_id]["mycall"] ~= nil and f_agwpe_dir().value == P2P_DIR_RECV and p_ddt2_stream_attrs[stream_id]["mycall"] == source ) then
+			-- Loopback Packet
+			subtree:add( pf_ddt2_loop, true, "[Loopback packet]")
+			pinfo.cols.info = "[Ignored loopback packet]"
 			return
-		end -- ]]--
+			
+		elseif ( p_ddt2_stream_attrs[stream_id]["mycall"] == nil and f_agwpe_dir().value == P2P_DIR_SENT ) then
+			p_ddt2_stream_attrs[stream_id]["mycall"] = source
+
+		end
 	end
 	
 	
@@ -498,11 +508,14 @@ function p_ddt2.dissector(buffer, pinfo, tree)
 
 		else
 			-- Dynamic Session
+			if ( session ~= 0 ) then
+				pinfo.cols.info:prepend( "{" .. session .. "} ")
+			end
+			
 			if ( mesg_type == DDT2_TYPE_WARMUP ) then
-				--pinfo.cols.info = ddt2_frame_type[DDT2_TYPE_WARMUP]
 				body_tree:add_expert_info( PI_UNDECODED, PI_CHAT, "Padding data to warmup power amplifier")
 				return
-				
+			
 			elseif ( mesg_type == DDT2_DYNSESS_FL_XFER or mesg_type == DDT2_DYNSESS_FR_XFER or mesg_type == DDT2_DYNSESS_SOCK ) then
 				-- New session
 				body_tree:add( pf_ddt2_sessid , body( 0, 1))
