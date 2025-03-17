@@ -139,3 +139,26 @@ sequenceDiagram
     Carol->>Alice: Type: End (Ur Sess: Na, in decimal form)
     Alice->>Carol: Type: End (My Sess: Na, in decimal form)
 ```
+
+## Form Transfer
+```mermaid
+sequenceDiagram
+    note over Alice,Carol: Set up session from Session 0
+    Alice->>+Carol: Type: Form Xfer, My Sess: Na
+    Carol->>-Alice: Type: ACK, Ur Sess: Na, My Sess: Nb
+    Alice-->>Carol: Type: Form Xfer, My Sess: Na
+
+    note right of Alice: Push File
+    Alice->>Carol: Type: Data (Direction, ??, Filename, Seq=0)
+    Alice->>Carol: Type: Request ACK (Seq=0, Payload=[Data's Seq])
+    Carol->>Alice: Type: End (Seq=0, Payload=[Req ACK's Seq])
+
+    note left of Carol: Acknowledge
+    Carol->>Alice: Type: Data ("OK", Filename, Seq=0)
+    Carol->>Alice: Type: Request ACK (Seq=0, Payload=[Data's Seq])
+    Alice->>Carol: Type: End (Seq=0, Payload=[Req ACK's Seq])
+
+    note right of Alice: File transfer
+
+    note over Alice,Carol: Tear down session from Session 0
+```
