@@ -25,6 +25,42 @@ local function get_stream_type_string( buffer)
 	return "Unknown"
 end
 
+local function decode_data_miniheader( buffer, tree)
+	local len = buffer():len()
+	local miniheader = buffer(0,1):uint()
+	local mh_tree = tree:add( p_dsvt, buffer(0,1), "Miniheader: ")
+	
+	if ( miniheader >= 0x31 and miniheader <= 0x35 ) then
+		mh_tree.text = mh_tree.text .. "Simple Data (D-PRS / PC-to-PC)"
+		
+	elseif ( miniheader >= 0x40 and miniheader <= 0x43 ) then
+		mh_tree.text = mh_tree.text .. "Message Function (radio to radio)"
+		
+	elseif ( miniheader >= 0x51 and miniheader <= 0x55 ) then
+		mh_tree.text = mh_tree.text .. "Radio header retransmission"
+		tree:add( p_dsvt, buffer(1,2), "Radio header data")
+		
+	elseif ( miniheader == 0x66 ) then
+		mh_tree.text = mh_tree.text .. "No Data"
+		
+	elseif ( miniheader >= 0x81 and miniheader <= 0x9C ) then
+		mh_tree.text = mh_tree.text .. "Fast Data"
+		tree:add( p_dsvt, buffer(1,2), "Payload")
+		
+	elseif ( miniheader == 0xC2 ) then
+		mh_tree.text = mh_tree.text .. "Code squelch"
+		tree:add( p_dsvt, buffer(1,2), "2 digits for code squelch")
+		
+	else
+		mh_tree.text = mh_tree.text .. "Reserved"
+		if ( len > 1 ) then
+			local unk = tree:add( p_dsvt, buffer(1), "Undocumented data")
+			unk:add_expert_info( PI_UNDECODED, PI_WARN, "Undocumented data format")
+		end
+		
+	end
+end
+
 function p_dsvt.dissector ( buffer, pinfo, tree)
 	-- Validate packet length
 	--if ( buffer:len() ~= 27 or buffer:len() ~= 56 ) then return end
@@ -52,7 +88,7 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	
 	-- Configuration Frame
 	if ( is_voice_stream(buffer()) and is_config_frame(buffer()) ) then
-		pinfo.cols.info:append(" Stream Configuration SID=" .. stream_id:uint() )
+		pinfo.cols.info = "Stream Configuration SID=" .. stream_id:uint() 
 		-- subtree:add( buffer(,8), ": " .. buffer(,):string())
 		-- Subtree for the flag fields
 		--local subtree_flags = subtree:add( buffer(15,3) , "D-Star flags" )
@@ -68,9 +104,9 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	
 	-- AMBE Voice Frame
 	if ( is_voice_stream(buffer()) and is_ambe_voice_frame(buffer()) ) then
-		pinfo.cols.info:append(" Voice Fragment SID=" .. stream_id:uint() .. " SEQ=0x" .. seq_num .. " [Codec: AMBE]")
-		subtree:add( buffer(15,9), "AMBE voice fragment: " .. buffer(15,9))
-		subtree:add( buffer(24,3), "DV data fragment: " .. buffer(24,3))
+		pinfo.cols.info = " Voice Fragment SID=" .. stream_id:uint() .. " SEQ=0x" .. seq_num .. " [Codec: AMBE]"
+		local voice_subtree = subtree:add( buffer(15,9), "AMBE voice fragment: " .. buffer(15,9))
+		local data_subtree = subtree:add( buffer(24,3), "DV data fragment: " .. buffer(24,3))
+		decode_data_miniheader( buffer(24,3), data_subtree)
 	end
-	--subtree:add( buffer(,), ": " .. buffer(,):string())
 end
