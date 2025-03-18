@@ -1,6 +1,6 @@
 -- dsvt.lua
 -- D-Star Voice Streaming Protocol
-dsvt = Proto ( "dsvt", "D-Star Voice Streaming Protocol")
+p_dsvt = Proto ( "dsvt", "D-Star Voice Streaming Protocol")
 
 local function is_config_frame( buffer)
 	return buffer(4,1):uint() == 0x10 
