@@ -5,7 +5,7 @@ p_dplus = Proto ( "dplus", "DPlus Protocol")
 local function get_pk_type_name(pk_type)
 	if( pk_type == 0x00 ) then return "Connection frame" end
 	if( pk_type == 0x60 ) then return "Management frame" end
-	if( pk_type == 0x80 ) then return "DVST frame" end
+	if( pk_type == 0x80 ) then return "DSVT frame" end
 	return "Unknown"
 end
 
@@ -45,8 +45,8 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 	end
 	
 	if( pk_type == 0x80) then
-		-- DVST Frame
-		Dissector.get("dvst"):call( buffer(2, buffer:len()-2):tvb(), pinfo, tree)
+		-- DSVT Frame
+		Dissector.get("dsvt"):call( buffer(2, buffer:len()-2):tvb(), pinfo, tree)
 	end
 end
 
