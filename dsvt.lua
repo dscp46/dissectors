@@ -26,11 +26,12 @@ local MITIGATION_BYTE = 0x02
 local pf_dsvt_header = ProtoField.string ( proto_shortname .. ".sig" , "Signature", base.ASCII)
 local pf_dsvt_mh = ProtoField.uint8 ( proto_shortname .. ".data.mini" , "Miniheader", base.HEX)
 local pf_dsvt_mh_number = ProtoField.uint8 ( proto_shortname .. ".data.mini.number" , "Miniheader Number", base.HEX, miniheader_types, 0xF0)
-local pf_dsvt_mh_sequence = ProtoField.uint8 ( proto_shortname .. ".data.mini.seq" , "Miniheader Sequence", base.HEX, nil, 0x0F)
+local pf_dsvt_mh_sequence = ProtoField.uint8 ( proto_shortname .. ".data.mini.seq" , "Miniheader Sequence", base.DEC, nil, 0x0F)
+local pf_dsvt_mh_size = ProtoField.uint8 ( proto_shortname .. ".data.size" , "Payload size (bytes)", base.DEC, nil, 0x0F)
 local pf_dsvt_dv_data = ProtoField.bytes ( proto_shortname .. ".dv.data" , "DV S-Data Block")
 
 p_dsvt.fields = {
-	pf_dsvt_header, pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_dv_data
+	pf_dsvt_header, pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_mh_size, pf_dsvt_dv_data
 }
 
 -- Frame number
@@ -127,24 +128,26 @@ local function decode_data_miniheader( buffer, tree)
 	local len = buffer():len()
 	local miniheader = buffer(0,1):uint()
 	local mh_tree = tree:add( pf_dsvt_mh, buffer(0,1))
-	mh_tree:add( pf_dsvt_mh_number, buffer(0,1))
+	
+	if ( miniheader ~= 0x66 ) then
+		mh_tree:add( pf_dsvt_mh_number, buffer(0,1))
+	else
+		mh_tree:add( p_dsvt, buffer(0,1), "Padding / No Data")
+		mh_tree.text = mh_tree.text .. " (Padding)"
+	end
 	
 	if ( miniheader >= 0x31 and miniheader <= 0x35 ) then
-		--mh_tree.text = mh_tree.text .. ""
+		mh_tree:add( pf_dsvt_mh_size, buffer(0, 1))
 		
 	elseif ( miniheader >= 0x40 and miniheader <= 0x43 ) then
-		--mh_tree.text = mh_tree.text .. "Message Function (radio to radio)"
+		mh_tree:add( pf_dsvt_mh_sequence, buffer(0,1))
 		
 	elseif ( miniheader >= 0x51 and miniheader <= 0x55 ) then
-		--mh_tree.text = mh_tree.text .. "Radio header retransmission"
+		mh_tree:add( pf_dsvt_mh_size, buffer(0, 1))
 		tree:add( p_dsvt, buffer(1,2), "Radio header data")
 		
 	elseif ( miniheader == 0x66 ) then
-		--mh_tree.text = mh_tree.text .. "No Data"
-		
-	elseif ( miniheader >= 0x81 and miniheader <= 0x9C ) then
-		--mh_tree.text = mh_tree.text .. "Fast Data"
-		tree:add( p_dsvt, buffer(1,2), "Payload")
+		-- No operation
 		
 	elseif ( miniheader == 0xC2 ) then
 		--mh_tree.text = mh_tree.text .. "Code squelch"
@@ -153,7 +156,7 @@ local function decode_data_miniheader( buffer, tree)
 	else
 		-- mh_tree.text = mh_tree.text .. " Reserved"
 		if ( len > 1 ) then
-			local unk = tree:add( p_dsvt, buffer(1), "Undocumented data")
+			local unk = tree:add( p_dsvt, buffer(1), "Undocumented type")
 			unk:add_expert_info( PI_UNDECODED, PI_WARN, "Undocumented data format")
 		end
 		
