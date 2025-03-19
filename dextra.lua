@@ -41,12 +41,18 @@ local module_list = {
 	[0x5A]="Bind to module Z",
 }
 
+local result_list = {
+	["ACK"]="Success",
+	["NAK"]="Failure",
+}
+
 local pf_dextra_callsign = ProtoField.string ( proto_shortname .. ".callsign" , "Callsign", base.ASCII)
 local pf_dextra_band     = ProtoField.uint8 ( proto_shortname .. ".band" , "Band", base.HEX, band_list)
 local pf_dextra_module   = ProtoField.string ( proto_shortname .. ".callsign" , "Module", base.ASCII, module_list)
+local pf_dextra_result   = ProtoField.string ( proto_shortname .. ".result" , "Result", base.ASCII, result_list)
 
 p_dextra.fields = {
-	pf_dextra_callsign, pf_dextra_band, pf_dextra_module,
+	pf_dextra_callsign, pf_dextra_band, pf_dextra_module, pf_dextra_result,
 }
 
 function p_dextra.dissector ( buffer, pinfo, tree)
@@ -62,6 +68,7 @@ function p_dextra.dissector ( buffer, pinfo, tree)
 	local callsign
 	local rpt_band
 	local xrf_module
+	local result_code
 	
 	if( len == 9 ) then
 		-- Keepalive
@@ -89,7 +96,33 @@ function p_dextra.dissector ( buffer, pinfo, tree)
 		
 	elseif ( len == 14 ) then
 		-- Answer
+		callsign = buffer( 0, 8):string():gsub( " ", "")
+		rpt_band = buffer( 8, 1):string()
+		xrf_module = buffer( 9, 1):string()
+		result_code = buffer( 10, 3):string()
 		
+		subtree:add( pf_dextra_callsign, buffer( 0, 8), callsign)
+		subtree:add( pf_dextra_band, buffer( 8, 1))
+		subtree:add( pf_dextra_module, buffer( 9, 1))
+		local result_subtree = subtree:add( pf_dextra_result, buffer( 10, 3))
+		subtree:add( buffer( 13, 1), "End of Message")
+		
+		if ( xrf_module ~= " " and xrf_module ~= "X" ) then
+			pinfo.cols.info = " bind from: " .. callsign .. " " .. rpt_band .. ", module " .. xrf_module
+		else
+			pinfo.cols.info = " disconnect from: " .. callsign .. " " .. rpt_band
+		end
+		
+		if ( result_code == "ACK" ) then
+			pinfo.cols.info:prepend("Successful")
+			
+		elseif ( result_code == "NAK" ) then
+			pinfo.cols.info:prepend("Failed")
+			
+		else
+			result_subtree:add_expert_info( PI_MALFORMED, PI_WARN, "Unknown result code")
+			pinfo.cols.info = "[Unknown result code]"
+		end
 		
 		
 	elseif( buffer( 0,4):string() == "DSVT") then
