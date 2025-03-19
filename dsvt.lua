@@ -31,6 +31,9 @@ p_dsvt.fields = {
 	pf_dsvt_header, pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_dv_data
 }
 
+-- Frame number
+local f_fnum       = Field.new("frame.number")
+
 local function is_config_frame( buffer)
 	return buffer(4,1):uint() == 0x10 
 end
@@ -54,6 +57,20 @@ local function get_stream_type_string( buffer)
 	return "Unknown"
 end
 
+-- Descramble a slow data frame, found in https://github.com/on1arf/voice-ann/blob/5baf0b2789190ec8fcf9557ca77d17a3fa397ea5/s_udpsend.h#L213-L215
+-- FIXME: Study DStar's spec and explain why that works on any bytes instead of the expected scrambler
+local function descramble( bytearray)
+	-- TODO: Find source of this magic sequence and grow it longer.
+	local scrambler_seq = { [0]=0x70, [1]=0x4f, [2]=0x93 }
+	local len = bytearray:len()
+	
+	local i=0
+	while ( i < len and i < 3 ) do
+		bytearray:set_index( i, bit.bxor( bytearray:get_index(i), scrambler_seq[i]) )
+		i = i + 1
+	end
+	return bytearray
+end
 local function decode_data_miniheader( buffer, tree)
 	local len = buffer():len()
 	local miniheader = buffer(0,1):uint()
@@ -92,6 +109,7 @@ local function decode_data_miniheader( buffer, tree)
 end
 
 local p_dsvt_stream_attrs = {}
+local p_dsvt_frame_attrs = {}
 
 function p_dsvt.dissector ( buffer, pinfo, tree)
 	-- Validate packet length
@@ -108,6 +126,7 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	local stream_id = buffer(12,2):uint();
 	local seq_num = buffer(14,1):uint();
 	local internal_seq = nil
+	local frame_num = f_fnum().value
 	
 	-- Allocate Sequence number
 	if ( p_dsvt_stream_attrs[stream_id] == nil ) then
@@ -116,12 +135,15 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	end
 	
 	-- Initialize stream attributes, allocate internal sequence number, to re-aggregate data
-	if ( pinfo.private["dvst_seq"] == nil ) then
-		pinfo.private["dvst_seq"] = p_dsvt_stream_attrs[stream_id]["seq"]
+	if ( p_dsvt_frame_attrs[frame_num] == nil ) then p_dsvt_frame_attrs[frame_num] = {} end
+	if ( p_dsvt_frame_attrs[frame_num]["seq"] == nil ) then
+		p_dsvt_frame_attrs[frame_num]["seq"] = p_dsvt_stream_attrs[stream_id]["seq"]
 		internal_seq = p_dsvt_stream_attrs[stream_id]["seq"]
 		p_dsvt_stream_attrs[stream_id][internal_seq] = {}
 		
 		p_dsvt_stream_attrs[stream_id]["seq"] = p_dsvt_stream_attrs[stream_id]["seq"] + 1
+	else
+		internal_seq = p_dsvt_frame_attrs[frame_num]["seq"]
 	end
 	
 	-- Fill the diagnostic tree
@@ -152,17 +174,20 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	
 	-- AMBE Voice Frame
 	if ( is_voice_stream(buffer()) and is_ambe_voice_frame(buffer()) ) then
+		-- TODO: Detect Fast data frame
+		
 		pinfo.cols.info = string.format( "Voice Fragment SID=0x%04X SEQ=0x%02X [Codec: AMBE]", stream_id, seq_num)
 		local voice_subtree = subtree:add( buffer(15,9), "AMBE voice fragment: " .. buffer(15,9))
-		subtree:add( p_dsvt, buffer(24,3), "[DV data fragment]")
+		subtree:add( p_dsvt, buffer(24,3), "[DV slow data fragment]")
 		
 		if( bit.band( seq_num, 0x01) == 1 ) then
-			p_dsvt_stream_attrs[stream_id][internal_seq]["data"] = buffer(24,3):bytes():tohex()
+			p_dsvt_stream_attrs[stream_id][internal_seq]["data"] = descramble( buffer(24,3):bytes()):tohex()
 		else
+			-- TODO: process Seq = 0x00 and 0x42 in a particular manner
 			if ( p_dsvt_stream_attrs[stream_id][internal_seq-1] ~= nil and p_dsvt_stream_attrs[stream_id][internal_seq-1]["data"] ~= nil ) then
 				local dv_data = ByteArray.new( p_dsvt_stream_attrs[stream_id][internal_seq-1]["data"] )
-				dv_data:append( buffer(24,3):bytes())
-				local tvb_data = dv_data:tvb()
+				dv_data:append( descramble( buffer(24,3):bytes()) )
+				local tvb_data = dv_data:tvb("DV S-Data Block")
 				local data_subtree = subtree:add( pf_dsvt_dv_data, tvb_data())
 				decode_data_miniheader( tvb_data, data_subtree)
 			end
