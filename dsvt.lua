@@ -25,7 +25,7 @@ local pf_dsvt_header = ProtoField.string ( proto_shortname .. ".sig" , "Signatur
 local pf_dsvt_mh = ProtoField.uint8 ( proto_shortname .. ".data.mini" , "Miniheader", base.HEX)
 local pf_dsvt_mh_number = ProtoField.uint8 ( proto_shortname .. ".data.mini.number" , "Miniheader Number", base.HEX, miniheader_types, 0xF0)
 local pf_dsvt_mh_sequence = ProtoField.uint8 ( proto_shortname .. ".data.mini.seq" , "Miniheader Sequence", base.HEX, nil, 0x0F)
-local pf_dsvt_dv_data = ProtoField.bytes ( proto_shortname .. ".dv.data" , "DV Data")
+local pf_dsvt_dv_data = ProtoField.bytes ( proto_shortname .. ".dv.data" , "DV S-Data Block")
 
 p_dsvt.fields = {
 	pf_dsvt_header, pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_dv_data
@@ -33,6 +33,11 @@ p_dsvt.fields = {
 
 -- Frame number
 local f_fnum       = Field.new("frame.number")
+
+-- Ternary operator
+local function fif(condition, if_true, if_false)
+	if condition then return if_true else return if_false end
+end
 
 local function is_config_frame( buffer)
 	return buffer(4,1):uint() == 0x10 
@@ -132,6 +137,7 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	if ( p_dsvt_stream_attrs[stream_id] == nil ) then
 		p_dsvt_stream_attrs[stream_id] = {}
 		p_dsvt_stream_attrs[stream_id]["seq"] = 0
+		p_dsvt_stream_attrs[stream_id]["sf"] = 0
 	end
 	
 	-- Initialize stream attributes, allocate internal sequence number, to re-aggregate data
@@ -148,6 +154,7 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	
 	-- Fill the diagnostic tree
 	local subtree = tree:add( p_dsvt, buffer(), "Digital Voice Streaming Protocol")
+	subtree:add( p_dsvt, string.format( "[Internal sequence number: %d]", internal_seq))
 	subtree:add( pf_dsvt_header, buffer(0,4))
 	subtree:add( buffer(4,1) , "Frame Type: " .. get_frame_type_string( buffer() ) .. " (0x" .. buffer(4,1) .. ")")
 	subtree:add( buffer(5,3) , "Reserved: " .. buffer(5,3))
@@ -174,16 +181,35 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	
 	-- AMBE Voice Frame
 	if ( is_voice_stream(buffer()) and is_ambe_voice_frame(buffer()) ) then
+		local superframe_id
+		
+		if ( p_dsvt_frame_attrs[frame_num]["sf"] == nil ) then
+			-- FIXME: Improve rules to detect new superframe
+			if( seq_num == 0x00 ) then
+				p_dsvt_stream_attrs[stream_id]["sf"] = p_dsvt_stream_attrs[stream_id]["sf"] + 1
+			end
+					
+			superframe_id = p_dsvt_stream_attrs[stream_id]["sf"]
+			p_dsvt_frame_attrs[frame_num]["sf"] = superframe_id
+		else
+			superframe_id = p_dsvt_frame_attrs[frame_num]["sf"] 
+		end
 		-- TODO: Detect Fast data frame
 		
 		pinfo.cols.info = string.format( "Voice Fragment SID=0x%04X SEQ=0x%02X [Codec: AMBE]", stream_id, seq_num)
 		local voice_subtree = subtree:add( buffer(15,9), "AMBE voice fragment: " .. buffer(15,9))
-		subtree:add( p_dsvt, buffer(24,3), "[DV slow data fragment]")
 		
-		if( bit.band( seq_num, 0x01) == 1 ) then
+		subtree:add( p_dsvt, buffer(24,3), fif( seq_num ~= 0, "[Scrambled DV slow data fragment]", "Sync Pattern (not scrambled)"))
+		
+		if( seq_num > 0x14 ) then
+			-- TODO: End of stream?
+		
+		elseif( seq_num == 0x00 ) then
+			-- Sync Pattern
+			
+		elseif( bit.band( seq_num, 0x01) == 1 ) then
 			p_dsvt_stream_attrs[stream_id][internal_seq]["data"] = descramble( buffer(24,3):bytes()):tohex()
 		else
-			-- TODO: process Seq = 0x00 and 0x42 in a particular manner
 			if ( p_dsvt_stream_attrs[stream_id][internal_seq-1] ~= nil and p_dsvt_stream_attrs[stream_id][internal_seq-1]["data"] ~= nil ) then
 				local dv_data = ByteArray.new( p_dsvt_stream_attrs[stream_id][internal_seq-1]["data"] )
 				dv_data:append( descramble( buffer(24,3):bytes()) )
@@ -191,6 +217,10 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 				local data_subtree = subtree:add( pf_dsvt_dv_data, tvb_data())
 				decode_data_miniheader( tvb_data, data_subtree)
 			end
+		end
+		
+		if ( seq_num == 0x14 ) then
+			-- TODO: Compile S-Data blocks from the superframe
 		end
 	end
 end
