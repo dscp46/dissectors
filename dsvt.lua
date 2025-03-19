@@ -1,4 +1,5 @@
  -- dsvt.lua - D-Star Voice Streaming Protocol
+ -- Reference: https://www.jarl.com/d-star/STD6_0a.pdf
  
 local proto_shortname = "dsvt"
 local proto_longname =  "D-Star Voice Streaming Protocol"
@@ -16,6 +17,34 @@ local miniheader_types = {
 	[0x9]=" Fast Data",
 }
 
+local flag_type = {
+	[0x1]="Wireless Header Packet",
+	[0x2]="Data Section Packet",
+}
+
+local trunk_type = {
+	[0x1]="DV Transmission",
+	[0x2]="DD Transmission",
+	[0x7]="Reserved",
+}
+
+local flag_hole_punch = {
+	[0x0000] = "Disabled",
+	[0x0001] = "Enabled", 
+}
+
+local trk_mgm_type = {
+	[0]="DV Segment",
+	[1]="Last DV Segment",
+	[2]="DV Header",
+	[3]="Reserved",
+}
+
+local trk_error = {
+	[0]="Normal",
+	[1]="Header error",
+}
+
 local MITIGATION_BYTE = 0x02
 
 -------------------------------------------------------------------------------
@@ -23,15 +52,35 @@ local MITIGATION_BYTE = 0x02
 -------------------------------------------------------------------------------
 
 -- My own fields
-local pf_dsvt_header = ProtoField.string ( proto_shortname .. ".sig" , "Signature", base.ASCII)
-local pf_dsvt_mh = ProtoField.uint8 ( proto_shortname .. ".data.mini" , "Miniheader", base.HEX)
-local pf_dsvt_mh_number = ProtoField.uint8 ( proto_shortname .. ".data.mini.number" , "Miniheader Number", base.HEX, miniheader_types, 0xF0)
-local pf_dsvt_mh_sequence = ProtoField.uint8 ( proto_shortname .. ".data.mini.seq" , "Miniheader Sequence", base.DEC, nil, 0x0F)
-local pf_dsvt_mh_size = ProtoField.uint8 ( proto_shortname .. ".data.size" , "Payload size (bytes)", base.DEC, nil, 0x0F)
-local pf_dsvt_dv_data = ProtoField.bytes ( proto_shortname .. ".dv.data" , "DV S-Data Block")
+local pf_dsvt_header          = ProtoField.string ( proto_shortname .. ".sig" , "Signature", base.ASCII)
+local pf_dvst_flag            = ProtoField.uint16 ( proto_shortname .. ".flag" , "Flag", base.HEX)
+local pf_dvst_flag_type       = ProtoField.uint16 ( proto_shortname .. ".flag.type" , "Flag", base.HEX, flag_type, 0xF000)
+local pf_dvst_flag_reserved   = ProtoField.uint16 ( proto_shortname .. ".flag.reserved" , "Reserved", base.HEX, nil, 0x0FFE)
+local pf_dvst_flag_hp         = ProtoField.uint16 ( proto_shortname .. ".flag.hole_punch" , "Hole punch", base.HEX, flag_hole_punch, 0x0001)
+local pf_dsvt_resv            = ProtoField.bytes  ( proto_shortname .. ".reserved" , "Reserved", base.SPACE)
+local pf_dsvt_mh              = ProtoField.uint8  ( proto_shortname .. ".data.mini" , "Miniheader", base.HEX)
+local pf_dsvt_mh_number       = ProtoField.uint8  ( proto_shortname .. ".data.mini.number" , "Miniheader Number", base.HEX, miniheader_types, 0xF0)
+local pf_dsvt_mh_sequence     = ProtoField.uint8  ( proto_shortname .. ".data.mini.seq" , "Miniheader Sequence", base.DEC, nil, 0x0F)
+local pf_dsvt_mh_size         = ProtoField.uint8  ( proto_shortname .. ".data.size" , "Payload size (bytes)", base.DEC, nil, 0x0F)
+local pf_dsvt_mh_fd_size      = ProtoField.uint8  ( proto_shortname .. ".fastdata.size" , "Payload size (bytes)", base.DEC, nil, 0x1F)
+local pf_dsvt_trunk           = ProtoField.bytes  ( proto_shortname .. ".trunk" , "Trunk Header", base.SPACE)
+local pf_dsvt_trunk_txtype    = ProtoField.uint8  ( proto_shortname .. ".trunk.tx_type" , "Transmission type", base.HEX, trunk_type, 0xE0)
+local pf_dsvt_trunk_dst       = ProtoField.uint8  ( proto_shortname .. ".trunk.dst" , "Destination Repeater ID", base.HEX)
+local pf_dsvt_trunk_src_rpt   = ProtoField.uint8  ( proto_shortname .. ".trunk.src.rpt" , "Source Repeater ID", base.HEX)
+local pf_dsvt_trunk_src_term  = ProtoField.uint8  ( proto_shortname .. ".trunk.src.term" , "Source Terminal ID", base.HEX)
+local pf_dsvt_trunk_call      = ProtoField.uint16 ( proto_shortname .. ".trunk.call" , "Call ID", base.HEX)
+local pf_dsvt_trunk_mgmt      = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt" , "Management Information", base.HEX)
+local pf_dsvt_trunk_mgmt_type = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt.type" , "Type", base.HEX, trk_mgm_type, 0xC0)
+local pf_dsvt_trunk_mgmt_err  = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt.err" , "Header Health", base.HEX, trk_error, 0x20)
+local pf_dsvt_trunk_mgmt_seq  = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt.seq" , "Sequence", base.HEX, nil, 0x1F)
+local pf_dsvt_dv_data         = ProtoField.bytes  ( proto_shortname .. ".dv.data" , "DV S-Data Block", base.SPACE)
 
 p_dsvt.fields = {
-	pf_dsvt_header, pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_mh_size, pf_dsvt_dv_data
+	pf_dsvt_header, pf_dvst_flag, pf_dvst_flag_type, pf_dvst_flag_reserved, pf_dvst_flag_hp, pf_dsvt_resv,
+	pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_mh_size, pf_dsvt_mh_fd_size,
+	pf_dsvt_trunk, pf_dsvt_trunk_txtype, pf_dsvt_trunk_dst, pf_dsvt_trunk_src_rpt, pf_dsvt_trunk_src_term, pf_dsvt_trunk_call,
+	pf_dsvt_trunk_mgmt, pf_dsvt_trunk_mgmt_type, pf_dsvt_trunk_mgmt_err, pf_dsvt_trunk_mgmt_seq,
+	pf_dsvt_dv_data
 }
 
 -- Frame number
@@ -97,18 +146,18 @@ local function decode_fastdata_firstblock( buffer, tree)
 	
 	local mh = subtree:add( pf_dsvt_mh, tvb_block( 0, 1) )
 	mh:add( pf_dsvt_mh_number, tvb_block( 0, 1) )
-	mh:add( pf_dsvt_mh_sequence, tvb_block( 0, 1) )
+	mh:add( pf_dsvt_mh_fd_size, tvb_block( 0, 1) )
 	subtree:add( pf_dsvt_guard, tvb_block( 2, 1) )
 	local mt_tree = subtree:add( p_dsvt, mitigation , "Mitigation Bytes" )
 	if ( mitigation:string() ~= "\x02\x02\x02" ) then
 		mt_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Unexpected value in mitigation bytes (should be 0x02)")
 	end
 	subtree:add( p_dsvt, payload, "Payload")
-	
+	mh:add( pf_dsvt_mh_number, tvb_block( 0, 1) )
 	return payload
 end
 
-local function decode_fastdata_block( buffer)
+local function decode_fastdata_block( buffer, tree)
 	local len = buffer():len()
 	
 	local fd_block = ByteArray.new()
@@ -118,10 +167,14 @@ local function decode_fastdata_block( buffer)
 	fd_block:append( descramble(buffer( 12, 9):bytes()) )
 	local tvb_block = fd_block:tvb("DV Fast Data Block")
 	local subtree = tree:add( p_dsvt, tvb_block(), "DV Fast Data Block")
-	--local payload = tvb_block(1,2) .. tvb_block( 4,6) .. tvb_block( 11, 8) .. tvb_block( 20, 8) .. tvb_block( 29, 4)
-	--local mitigation = tvb_block( 10, 1) .. tvb_block( 19, 1) .. tvb_block( 28, 1)
-	return payload
+	local payload = tvb_block(1,2) .. tvb_block( 4,6) .. tvb_block( 11, 8) .. tvb_block( 20, 4)
+	local mitigation = tvb_block( 10, 1) .. tvb_block( 19, 1)
 	
+	local mh = subtree:add( pf_dsvt_mh, tvb_block( 0, 1) )
+	mh:add( pf_dsvt_mh_number, tvb_block( 0, 1) )
+	mh:add( pf_dsvt_mh_fd_size, tvb_block( 0, 1) )
+	
+	return payload
 end
 
 local function decode_data_miniheader( buffer, tree)
@@ -138,13 +191,15 @@ local function decode_data_miniheader( buffer, tree)
 	
 	if ( miniheader >= 0x31 and miniheader <= 0x35 ) then
 		mh_tree:add( pf_dsvt_mh_size, buffer(0, 1))
+		tree:add( p_dsvt, buffer(1, bit.band( buffer(0, 1):uint(), 0x0F)), "Payload")
 		
 	elseif ( miniheader >= 0x40 and miniheader <= 0x43 ) then
 		mh_tree:add( pf_dsvt_mh_sequence, buffer(0,1))
+		tree:add( p_dsvt, buffer(1,5), "Payload")
 		
 	elseif ( miniheader >= 0x51 and miniheader <= 0x55 ) then
 		mh_tree:add( pf_dsvt_mh_size, buffer(0, 1))
-		tree:add( p_dsvt, buffer(1,2), "Radio header data")
+		tree:add( p_dsvt, buffer(1, bit.band( buffer(0, 1):uint(), 0x0F)), "Payload")
 		
 	elseif ( miniheader == 0x66 ) then
 		-- No operation
@@ -206,12 +261,25 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	local subtree = tree:add( p_dsvt, buffer(), "Digital Voice Streaming Protocol")
 	subtree:add( p_dsvt, string.format( "[Internal sequence number: %d]", internal_seq))
 	subtree:add( pf_dsvt_header, buffer(0,4))
-	subtree:add( buffer(4,1) , "Frame Type: " .. get_frame_type_string( buffer() ) .. " (0x" .. buffer(4,1) .. ")")
-	subtree:add( buffer(5,3) , "Reserved: " .. buffer(5,3))
-	subtree:add( buffer(8,1) , "Stream type: " .. get_stream_type_string( buffer() ) .. " (0x" .. buffer(8,1) .. ")")
-	subtree:add( buffer(9,3) , "Reserved: " .. buffer(9,3))
-	subtree:add( buffer(12,2), string.format( "Stream id: 0x%04X", stream_id))
-	subtree:add( buffer(14,1), string.format( "Sequence: 0x%02X", seq_num))
+	local flag_subtree =  subtree:add( pf_dvst_flag, buffer(4,2))
+	flag_subtree:add( pf_dvst_flag_type, buffer(4,2))
+	flag_subtree:add( pf_dvst_flag_reserved, buffer(4,2))
+	flag_subtree:add( pf_dvst_flag_hp, buffer(4,2))
+	subtree:add( pf_dsvt_resv, buffer(6,2))
+	local trunk_subtree = subtree:add( pf_dsvt_trunk, buffer(8,7))
+	trunk_subtree:add( pf_dsvt_trunk_txtype, buffer(8,1))
+	trunk_subtree:add( pf_dsvt_trunk_dst, buffer(9,1))
+	trunk_subtree:add( pf_dsvt_trunk_src_rpt, buffer(10,1))
+	trunk_subtree:add( pf_dsvt_trunk_src_term, buffer(11,1))
+	trunk_subtree:add( pf_dsvt_trunk_call, buffer(12,2))
+	local mgm_subtree = trunk_subtree:add( pf_dsvt_trunk_mgmt, buffer(14,1))
+	mgm_subtree:add( pf_dsvt_trunk_mgmt_type, buffer(14,1))
+	mgm_subtree:add( pf_dsvt_trunk_mgmt_err, buffer(14,1))
+	mgm_subtree:add( pf_dsvt_trunk_mgmt_seq, buffer(14,1))
+	--subtree:add( buffer(8,1) , "Stream type: " .. get_stream_type_string( buffer() ) .. " (0x" .. buffer(8,1) .. ")")
+	--subtree:add( buffer(9,3) , "Reserved: " .. buffer(9,3))
+	--subtree:add( buffer(12,2), string.format( "Stream id: 0x%04X", stream_id))
+	--subtree:add( buffer(14,1), string.format( "Sequence: 0x%02X", seq_num))
 	
 	-- Configuration Frame
 	if ( is_voice_stream(buffer()) and is_config_frame(buffer()) ) then
@@ -219,9 +287,10 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 		-- subtree:add( buffer(,8), ": " .. buffer(,):string())
 		-- Subtree for the flag fields
 		--local subtree_flags = subtree:add( buffer(15,3) , "D-Star flags" )
-		Dissector.get("dstarflags"):call( buffer(15,3):tvb(), pinfo, subtree)
+		--Dissector.get("dstarflags"):call( buffer(15,3):tvb(), pinfo, subtree)
 		
 		-- Next fields
+		--tree:add( buffer(18)
 		subtree:add( buffer(18,8), "RPT1: " .. buffer(18,8):string())
 		subtree:add( buffer(26,8), "RPT2: " .. buffer(26,8):string())
 		subtree:add( buffer(34,8), "UR: " .. buffer(34,8):string())
