@@ -5,7 +5,7 @@ local proto_longname =  "D-Star Voice Streaming Protocol"
 p_dsvt = Proto ( proto_shortname, proto_longname)
 
 -------------------------------------------------------------------------------
--- Enums
+-- Enums / Constants
 -------------------------------------------------------------------------------
 local miniheader_types = {
 	[0x3]=" Simple Data (D-PRS / PC-to-PC)",
@@ -15,6 +15,8 @@ local miniheader_types = {
 	[0x8]=" Fast Data",
 	[0x9]=" Fast Data",
 }
+
+local MITIGATION_BYTE = 0x02
 
 -------------------------------------------------------------------------------
 -- Fields
@@ -62,11 +64,12 @@ local function get_stream_type_string( buffer)
 	return "Unknown"
 end
 
--- Descramble a slow data frame, found in https://github.com/on1arf/voice-ann/blob/5baf0b2789190ec8fcf9557ca77d17a3fa397ea5/s_udpsend.h#L213-L215
--- FIXME: Study DStar's spec and explain why that works on any bytes instead of the expected scrambler
+-- Descramble D-Star data, values pulled from :
+-- https://github.com/g4klx/MMDVM/blob/824c9b985228ebf0538bd2b6f443c3aac9ce4318/DStarRX.cpp#L191-L202
+-- FIXME: Study DStar's spec and explain how we're falling on those values
+
 local function descramble( bytearray)
-	-- TODO: Find source of this magic sequence and grow it longer.
-	local scrambler_seq = { [0]=0x70, [1]=0x4f, [2]=0x93 }
+	local scrambler_seq = { [0]=0x70, [1]=0x4f, [2]=0x93, [3]=0x40, [4]=0x64, [5]=0x74, [6]=0x6d, [7]=0x30, [8]=0x2b, }
 	local len = bytearray:len()
 	
 	local i=0
@@ -76,6 +79,50 @@ local function descramble( bytearray)
 	end
 	return bytearray
 end
+
+local function decode_fastdata_firstblock( buffer, tree)
+	local len = buffer():len()
+	
+	local fd_block = ByteArray.new()
+	fd_block:append( descramble(buffer( 21, 3):bytes() )
+	fd_block:append( descramble(buffer( 33, 3):bytes() )
+	fd_block:append( descramble(buffer( 12, 3):bytes() )
+	fd_block:append( descramble(buffer( 24, 3):bytes() )
+	fd_block:append( descramble(buffer( 0, 3):bytes() 	
+	local tvb_block = fd_block:tvb("DV Fast Data Block")
+	local subtree = tree:add( p_dsvt, tvb_block(), "DV Fast Data Block")
+	local payload = tvb_block(1,2) .. tvb_block( 4,6) .. tvb_block( 11, 8) .. tvb_block( 20, 8) .. tvb_block( 29, 4)
+	local mitigation = tvb_block( 10, 1) .. tvb_block( 19, 1) .. tvb_block( 28, 1)
+	
+	local mh = subtree:add( pf_dsvt_mh, tvb_block( 0, 1) )
+	mh:add( pf_dsvt_mh_number, tvb_block( 0, 1) )
+	mh:add( pf_dsvt_mh_sequence, tvb_block( 0, 1) )
+	subtree:add( pf_dsvt_guard, tvb_block( 2, 1) )
+	local mt_tree = subtree:add( p_dsvt, mitigation , "Mitigation Bytes" )
+	if ( mitigation:string() ~= "\x02\x02\x02" ) then
+		mt_tree:add_expert_info( PI_PROTOCOL, PI_WARN, "Unexpected value in mitigation bytes (should be 0x02)")
+	end
+	subtree:add( p_dsvt, payload, "Payload")
+	
+	return payload
+end
+
+local function decode_fastdata_block( buffer)
+	local len = buffer():len()
+	
+	local fd_block = ByteArray.new()
+	fd_block:append( descramble(buffer( 9, 3):bytes() )
+	fd_block:append( descramble(buffer( 21, 3):bytes() )
+	fd_block:append( descramble(buffer( 0, 9):bytes() )
+	fd_block:append( descramble(buffer( 12, 9):bytes() )
+	local tvb_block = fd_block:tvb("DV Fast Data Block")
+	local subtree = tree:add( p_dsvt, tvb_block(), "DV Fast Data Block")
+	--local payload = tvb_block(1,2) .. tvb_block( 4,6) .. tvb_block( 11, 8) .. tvb_block( 20, 8) .. tvb_block( 29, 4)
+	--local mitigation = tvb_block( 10, 1) .. tvb_block( 19, 1) .. tvb_block( 28, 1)
+	return payload
+	
+end
+
 local function decode_data_miniheader( buffer, tree)
 	local len = buffer():len()
 	local miniheader = buffer(0,1):uint()
