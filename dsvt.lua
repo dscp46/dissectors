@@ -276,10 +276,6 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	mgm_subtree:add( pf_dsvt_trunk_mgmt_type, buffer(14,1))
 	mgm_subtree:add( pf_dsvt_trunk_mgmt_err, buffer(14,1))
 	mgm_subtree:add( pf_dsvt_trunk_mgmt_seq, buffer(14,1))
-	--subtree:add( buffer(8,1) , "Stream type: " .. get_stream_type_string( buffer() ) .. " (0x" .. buffer(8,1) .. ")")
-	--subtree:add( buffer(9,3) , "Reserved: " .. buffer(9,3))
-	--subtree:add( buffer(12,2), string.format( "Stream id: 0x%04X", stream_id))
-	--subtree:add( buffer(14,1), string.format( "Sequence: 0x%02X", seq_num))
 	
 	-- Configuration Frame
 	if ( is_voice_stream(buffer()) and is_config_frame(buffer()) ) then
@@ -313,6 +309,9 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 		else
 			superframe_id = p_dsvt_frame_attrs[frame_num]["sf"] 
 		end
+		
+		subtree:add( p_dsvt, string.format("[Internal Superframe ID: %d]", superframe_id))
+		
 		-- TODO: Detect Fast data frame
 		
 		pinfo.cols.info = string.format( "Voice Fragment SID=0x%04X SEQ=0x%02X [Codec: AMBE]", stream_id, seq_num)
