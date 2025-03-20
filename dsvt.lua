@@ -92,6 +92,28 @@ local function fif(condition, if_true, if_false)
 	if condition then return if_true else return if_false end
 end
 
+-- Iterate table pairs (key, value) ordered by key
+local function pairs_by_keys(t, f)
+  local a = {}
+
+  for n in pairs(t) do table.insert(a, n) end
+
+  if not f then
+     f = sort_asc
+  end
+
+  table.sort(a, f)
+  local i = 0      -- iterator variable
+  local iter = function ()   -- iterator function
+    i = i + 1
+    if a[i] == nil then return nil
+    else return a[i], t[a[i]]
+    end
+  end
+
+  return iter
+end
+
 local function is_config_frame( buffer)
 	return buffer(4,1):uint() == 0x10 
 end
@@ -323,17 +345,27 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 		
 		-- Initialize the radio to radio messages store
 		if ( p_dsvt_stream_attrs[stream_id]["messages"] == nil ) then p_dsvt_stream_attrs[stream_id]["messages"] = {} end
-		
-		-- Initialize the simple data store
-		if ( p_dsvt_stream_attrs[stream_id]["data"] == nil ) then 
-			p_dsvt_stream_attrs[stream_id]["data"] = ByteArray.new() 
-			p_dsvt_stream_attrs[stream_id]["data_chunks"] = {}
-			p_dsvt_stream_attrs[stream_id]["data_chunks"]["seq"] = {}
-		end
-		
-		if( bit.band( seq_num, 0xC0) > 0x14 ) then
-			-- TODO: End of stream?
-		
+				
+		if( bit.band( seq_num, 0xC0) ~= 0 ) then
+			-- End of stream
+			local dvslow_tree = tree:add( p_dsvt, "DV Data Transmission Report" )
+			if ( p_dsvt_stream_attrs[stream_id]["last_mesg"] ~= nil ) then
+				dvslow_tree:add( p_dsvt, "DV Message (Radio-to-Radio): " .. p_dsvt_stream_attrs[stream_id]["last_mesg"])
+			end
+			
+			if( p_dsvt_stream_attrs[stream_id]["data"] ~= nil ) then
+				local reassembled_data = ByteArray.new()
+				for k_sf, _ in pairs_by_keys( p_dsvt_stream_attrs[stream_id]["data"] ) do
+					for kk, _ in pairs_by_keys( p_dsvt_stream_attrs[stream_id]["data"][k_sf] ) do
+						reassembled_data:append( p_dsvt_stream_attrs[stream_id]["data"][k_sf][kk] )
+					end
+				end
+				
+				local data_tvb = reassembled_data:tvb( "Reassembled Simple Data (PC-to-PC)")
+				dvslow_tree:add( p_dsvt, data_tvb(), "Reassembled Simple Data (PC-to-PC)")
+			end
+			
+			
 		elseif( seq_num == 0x00 ) then
 			-- Sync Pattern
 			
@@ -363,7 +395,12 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 					
 				elseif ( miniheader == 0x30 ) then
 					-- Simple Data (PC to PC)
-					
+					if( p_dsvt_stream_attrs[stream_id]["data"] == nil ) then p_dsvt_stream_attrs[stream_id]["data"] = {} end
+					if( p_dsvt_stream_attrs[stream_id]["data"][superframe_id] == nil ) then p_dsvt_stream_attrs[stream_id]["data"][superframe_id] = {} end
+					if( p_dsvt_stream_attrs[stream_id]["data"][superframe_id][seq_num] == nil ) then
+						p_dsvt_stream_attrs[stream_id]["data"][superframe_id][seq_num] = ByteArray.new( tvb_data(1, arg):bytes():tohex())
+					end
+
 				elseif ( miniheader == 0x50 ) then
 				end
 			end
