@@ -74,13 +74,14 @@ local pf_dsvt_trunk_mgmt_type = ProtoField.uint8  ( proto_shortname .. ".trunk.m
 local pf_dsvt_trunk_mgmt_err  = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt.err" , "Header Health", base.HEX, trk_error, 0x20)
 local pf_dsvt_trunk_mgmt_seq  = ProtoField.uint8  ( proto_shortname .. ".trunk.mgmt.seq" , "Sequence", base.HEX, nil, 0x1F)
 local pf_dsvt_dv_data         = ProtoField.bytes  ( proto_shortname .. ".dv.data" , "DV S-Data Block", base.SPACE)
+local pf_dsvt_dv_message      = ProtoField.string ( proto_shortname .. ".dv.message" , "DV Message (Radio-to-Radio)", base.ASCII)
 
 p_dsvt.fields = {
 	pf_dsvt_header, pf_dvst_flag, pf_dvst_flag_type, pf_dvst_flag_reserved, pf_dvst_flag_hp, pf_dsvt_resv,
 	pf_dsvt_mh, pf_dsvt_mh_number, pf_dsvt_mh_sequence, pf_dsvt_mh_size, pf_dsvt_mh_fd_size,
 	pf_dsvt_trunk, pf_dsvt_trunk_txtype, pf_dsvt_trunk_dst, pf_dsvt_trunk_src_rpt, pf_dsvt_trunk_src_term, pf_dsvt_trunk_call,
 	pf_dsvt_trunk_mgmt, pf_dsvt_trunk_mgmt_type, pf_dsvt_trunk_mgmt_err, pf_dsvt_trunk_mgmt_seq,
-	pf_dsvt_dv_data
+	pf_dsvt_dv_data, pf_dsvt_dv_message
 }
 
 -- Frame number
@@ -242,7 +243,8 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 	if ( p_dsvt_stream_attrs[stream_id] == nil ) then
 		p_dsvt_stream_attrs[stream_id] = {}
 		p_dsvt_stream_attrs[stream_id]["seq"] = 0
-		p_dsvt_stream_attrs[stream_id]["sf"] = 0
+		p_dsvt_stream_attrs[stream_id]["sf"] = {}
+		p_dsvt_stream_attrs[stream_id]["sf"]["count"] = 0
 	end
 	
 	-- Initialize stream attributes, allocate internal sequence number, to re-aggregate data
@@ -301,10 +303,10 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 		if ( p_dsvt_frame_attrs[frame_num]["sf"] == nil ) then
 			-- FIXME: Improve rules to detect new superframe
 			if( seq_num == 0x00 ) then
-				p_dsvt_stream_attrs[stream_id]["sf"] = p_dsvt_stream_attrs[stream_id]["sf"] + 1
+				p_dsvt_stream_attrs[stream_id]["sf"]["count"] = p_dsvt_stream_attrs[stream_id]["sf"]["count"] + 1
 			end
 					
-			superframe_id = p_dsvt_stream_attrs[stream_id]["sf"]
+			superframe_id = p_dsvt_stream_attrs[stream_id]["sf"]["count"]
 			p_dsvt_frame_attrs[frame_num]["sf"] = superframe_id
 		else
 			superframe_id = p_dsvt_frame_attrs[frame_num]["sf"] 
@@ -319,7 +321,17 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 		
 		subtree:add( p_dsvt, buffer(24,3), fif( seq_num ~= 0, "[Scrambled DV slow data fragment]", "Sync Pattern (not scrambled)"))
 		
-		if( seq_num > 0x14 ) then
+		-- Initialize the radio to radio messages store
+		if ( p_dsvt_stream_attrs[stream_id]["messages"] == nil ) then p_dsvt_stream_attrs[stream_id]["messages"] = {} end
+		
+		-- Initialize the simple data store
+		if ( p_dsvt_stream_attrs[stream_id]["data"] == nil ) then 
+			p_dsvt_stream_attrs[stream_id]["data"] = ByteArray.new() 
+			p_dsvt_stream_attrs[stream_id]["data_chunks"] = {}
+			p_dsvt_stream_attrs[stream_id]["data_chunks"]["seq"] = {}
+		end
+		
+		if( bit.band( seq_num, 0xC0) > 0x14 ) then
 			-- TODO: End of stream?
 		
 		elseif( seq_num == 0x00 ) then
@@ -334,11 +346,37 @@ function p_dsvt.dissector ( buffer, pinfo, tree)
 				local tvb_data = dv_data:tvb("DV S-Data Block")
 				local data_subtree = subtree:add( pf_dsvt_dv_data, tvb_data())
 				decode_data_miniheader( tvb_data, data_subtree)
+				
+				local miniheader = bit.band( tvb_data( 0, 1):uint(), 0xF0)
+				local arg = bit.band( tvb_data( 0, 1):uint(), 0x0F)
+				
+				if ( miniheader == 0x40 ) then
+					-- Message, accumulate in superframe
+					if ( p_dsvt_stream_attrs[stream_id]["messages"][superframe_id] == nil ) then 
+						p_dsvt_stream_attrs[stream_id]["messages"][superframe_id] = ByteArray.new()
+						p_dsvt_stream_attrs[stream_id]["messages"][superframe_id]:set_size( 20 )
+					end
+					
+					for i=0, 4, 1 do
+						p_dsvt_stream_attrs[stream_id]["messages"][superframe_id]:set_index( arg*5+i, tvb_data( 1+i, 1):uint())
+					end
+					
+				elseif ( miniheader == 0x30 ) then
+					-- Simple Data (PC to PC)
+					
+				elseif ( miniheader == 0x50 ) then
+				end
 			end
 		end
 		
 		if ( seq_num == 0x14 ) then
-			-- TODO: Compile S-Data blocks from the superframe
+			-- Display display
+			if ( p_dsvt_stream_attrs[stream_id]["messages"][superframe_id] ~= nil ) then
+				local tvb_message = p_dsvt_stream_attrs[stream_id]["messages"][superframe_id]:tvb("DV Message (Radio2Radio)")
+				local dvslow_tree = tree:add( p_dsvt, "DV Slow Data")
+				dvslow_tree:add( pf_dsvt_dv_message, tvb_message())
+				p_dsvt_stream_attrs[stream_id]["last_mesg"] = tvb_message():string()
+			end
 		end
 	end
 end
