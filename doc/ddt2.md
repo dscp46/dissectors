@@ -13,7 +13,11 @@ Prior to being sent, the messages are yEncoded with the following parameters:
 
 ## Message formatting
 
-All fields, unless explicitely stated, are unsigned integers in the network order.
+  * Once yDecoded, a D-Rats packet is organised as described below.
+  * All fields, unless explicitely stated, are unsigned integers in the network order.
+  * Strings are fixed-size, not null-terminated.
+  * Presence of a body / payload is optional (FIXME: confirm this reading back d-rats' code)
+  * The field sizes, in the following graph are given in **bits**, not **bytes** for readability.
 
 ```mermaid
 ---
