@@ -15,7 +15,7 @@ Per D-Star specification, section 6.2:
 > データフレームが “0xE7, 0x84, 0x76” のデータ列となり、かつ音声フレームが無音 パターン“0x9E, 0x8D,
 0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8”の場合にパケッ トロスとして扱うため使用できません。
 
-Best way to ensure we don't trigger packet loss mechanisms would be to also escape `0xE7` and `0xE8`, as recommended in said subsection, I'll file a PR on this.
+Best way to ensure we don't trigger packet loss mechanisms would be to also escape `0xE7`, as recommended in said subsection, I'll file a PR on this.
 
 ## Message formatting
 
