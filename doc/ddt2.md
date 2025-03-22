@@ -11,6 +11,12 @@ Prior to being sent, the messages are yEncoded with the following parameters:
   * Forbidden characters: `0x00`, `0x11`, `0x13`, `0x1A`, `0xFD`, `0xFE`, `0xFF`
   * Offset: 64
 
+Per D-Star specification, section 6.2:
+> データフレームが “0xE7, 0x84, 0x76” のデータ列となり、かつ音声フレームが無音 パターン“0x9E, 0x8D,
+0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8”の場合にパケッ トロスとして扱うため使用できません。
+
+Best way to ensure we don't trigger packet loss mechanisms would be to also escape `0xE7` and `0xE8`, as recommended in said subsection, I'll file a PR on this.
+
 ## Message formatting
 
   * Once yDecoded, a D-Rats packet is organised as described below.
