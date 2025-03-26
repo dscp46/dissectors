@@ -4,34 +4,34 @@ local proto_longname = "DPlus Protocol"
 p_dplus = Proto ( proto_shortname, proto_longname)
 
 local ascp_type = {
-	[0]=> "Control Item",
-	[1]=> "Current Control Item",
-	[2]=> "Control Item Range",
-	[3]=> "Data ACK",
-	[4]=> "D-Star Voice Trunk data",
-	[5]=> "Data Item 1",
-	[6]=> "Query",
-	[7]=> "Data Item 3",
+	[0]= "Control Item",
+	[1]= "Current Control Item",
+	[2]= "Control Item Range",
+	[3]= "Data ACK",
+	[4]= "D-Star Voice Trunk data",
+	[5]= "Data Item 1",
+	[6]= "Query",
+	[7]= "Data Item 3",
 }
 
 local ctl_types = {
-	[0x0018] = "State transition"
+	[0x0018]= "State transition",
 }
 
 local query_types = {
-	[0x0004] = "Authentication"
+	[0x0004]= "Authentication",
 }
 
 local state_trans = {
-	[0] => "Idle"
-	[1] => "Active"
+	[0]= "Idle",
+	[1]= "Active",
 }
 
 local auth_result = {
-	["OKRO"] = "Success (read-only)",
-	["OKRW"] = "Success",
-	["BUSY"] = "No available slot",
-	["FAIL"] = "Failure"
+	["OKRO"]= "Success (read-only)",
+	["OKRW"]= "Success",
+	["BUSY"]= "No available slot",
+	["FAIL"]= "Failure",
 }
 
 -- Fields
@@ -75,7 +75,7 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 		-- Pass the information to the DSVT dissector
 		Dissector.get("dsvt"):call( buffer(2):tvb(), pinfo, tree)
 
-	if ( ascp_type == 3 and len == 3 ) then
+	elseif ( ascp_type == 3 and len == 3 ) then
 		-- Keepalive
 		pinfo.cols.info = "Keepalive"
 		subtree:add( pf_dplus_keepalive, buffer(2,1))
@@ -86,11 +86,11 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 		local command = buffer(2,2):le_uint()
 		subtree:add_le( pf_dplus_ctl_code, buffer( 2, 2))
 		
-		if ( command == 0x18 and length == 5 ) then
+		if ( command == 0x0018 and len == 5 ) then
 			-- Repeater state transition
 			local state = buffer( 4,1):uint()
 			subtree:add( pf_dplus_ctl_state, buffer( 4, 1))
-			pinfo.cols.info = "Repeater new state: " .. state_trans[state]
+			pinfo.cols.info = "New state: " .. state_trans[state]
 			
 		else
 			local uncomm = subtree:add( buffer(2,1), "Unknown command")
@@ -106,7 +106,7 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 			subtree:add( pf_dplus_auth, buffer(4))
 			
 		else
-			local unkquery = subtree:( buffer( 4), "Unknown Query")
+			local unkquery = subtree:add( buffer( 4), "Unknown Query")
 			unkquery:add_expert_info( PI_UNDECODED, PI_WARN, "Undocumented data")
 		end
 		
