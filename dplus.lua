@@ -19,7 +19,13 @@ local ctl_types = {
 }
 
 local query_types = {
+	[0x0003]= "Version",
 	[0x0004]= "Authentication",
+	[0x0005]= "Linked Repeaters List",
+	[0x0105]= "Linked Repeaters List (Reply)",
+	[0x0006]= "Connected Users List",
+	[0x0007]= "Last Heard List",
+	[0x0008]= "Date",
 }
 
 local state_trans = {
@@ -43,10 +49,11 @@ local pf_dplus_ctl_state       = ProtoField.uint8 ( proto_shortname .. ".state" 
 local pf_dplus_query_type     = ProtoField.uint16 ( proto_shortname .. ".query.type" , "Type", base.HEX, query_types)
 local pf_dplus_auth           = ProtoField.string ( proto_shortname .. ".auth" , "Authentication Result", base.ASCII, auth_result)
 local pf_dplus_dongle_serial  = ProtoField.string ( proto_shortname .. ".dongle.sn" , "Dongle Serial Number", base.ASCII)
+local pf_dplus_epoch          = ProtoField.uint32 ( proto_shortname .. ".epoch" , "*NIX Epoch", base.ASCII)
 
 p_dplus.fields = {
 	pf_dplus_ascp_type, pf_dplus_ascp_length, pf_dplus_keepalive, pf_dplus_ctl_code, pf_dplus_ctl_state, 
-	pf_dplus_query_type, pf_dplus_auth, pf_dplus_dongle_serial,
+	pf_dplus_query_type, pf_dplus_auth, pf_dplus_dongle_serial, pf_dplus_epoch,
 }
 
 function p_dplus.dissector ( buffer, pinfo, tree)
@@ -56,7 +63,7 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 	local len = buffer:len()
 	local inner_len = bit.band( buffer( 0, 2):le_uint(), 0x1FFF)
 	local ascp_header = buffer( 0, 2)
-	local ascp_type = bit.band( buffer( 1,1):uint(), 0xE0)
+	local ascp_type = bit.rshift( bit.band( buffer( 1,1):uint(), 0xE0), 5)
 		
 	-- Validate length
 	if ( len ~= inner_len ) then return end;
@@ -66,10 +73,11 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 	
 	-- Subtree
 	local subtree = tree:add( p_dplus, buffer(), "DPlus Protocol")
-	local ascp_tree = subtree:add_le ( ascp_header, "Amateur Station Control Protocol Header" )
+	local ascp_tree = subtree:add_le ( p_dplus, ascp_header, "Amateur Station Control Protocol Header" )
 	ascp_tree:add_le( pf_dplus_ascp_type, ascp_header)
 	ascp_tree:add_le( pf_dplus_ascp_length, ascp_header)
-
+	local callsign = nil
+	local serial = nil
 	
 	if ( ascp_type == 4 ) then
 		-- Pass the information to the DSVT dissector
@@ -101,9 +109,44 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 		local qtype = buffer( 2, 2):le_uint()
 		subtree:add_le( pf_dplus_query_type, buffer( 2, 2))
 		
-		if ( qtype == 0x0004 ) then
+		if ( qtype == 0x0004 and len == 8 ) then
 			-- Authentication result
-			subtree:add( pf_dplus_auth, buffer(4))
+			local auth_tree = subtree:add( pf_dplus_auth, buffer(4))
+			local result = buffer(4):string()
+			pinfo.cols.info = "Auth result: " .. auth_result[result]
+			auth_tree.text = string.format( "%s %s (%s)", auth_tree.text:sub( 1, -6), auth_result[result], result)
+		
+		elseif ( qtype == 0x0004 and len == 28 ) then
+			-- Authentication request
+			callsign = buffer( 4, 8):string()
+			serial = buffer( 20, 8):string()
+			
+			subtree:add( buffer( 4, 8), "Callsign: " .. callsign )
+			local serial_tree = subtree:add( buffer( 20, 8), "Dongle serial: " .. serial )
+			if ( buffer( 20, 8):string() == "DV019999" ) then
+				serial_tree:add_expert_info( PI_PROTOCOL, PI_COMMENT, "Not an actual dongle")
+			end
+			
+			pinfo.cols.info = "Auth request from: " .. callsign
+		
+		elseif ( qtype == 0x0003 and len > 5 ) then
+			-- Software version
+			version = buffer( 4):string()
+			subtree:add( buffer(4), "Software version: " .. version)
+			pinfo.cols.info = "Software version: " .. version
+		
+		elseif ( qtype == 0x0008 and len == 34 ) then
+			-- Date reply
+			local time = buffer( 8):string()
+			subtree:add_le( pf_dplus_epoch, buffer( 4, 4))
+			local time_tree = subtree:add( buffer(8), "Current Date: " .. time)
+			if ( buffer(28,5):string() == "     " ) then
+				time_tree:add_expert_info( PI_PROTOCOL, PI_COMMENT, "Implied time zone: UTC")
+			end
+			pinfo.cols.info = "Current Date: " .. time
+		
+		elseif ( query_types[qtype] ~= nil and len == 4 ) then
+			pinfo.cols.info = query_types[qtype] .. " Request"
 			
 		else
 			local unkquery = subtree:add( buffer( 4), "Unknown Query")
