@@ -40,6 +40,12 @@ local auth_result = {
 	["FAIL"]= "Failure",
 }
 
+local client_type = {
+	["A"]="DVAP",
+	["D"]="Dongle",
+	["H"]="Hotspot",
+}
+
 -- Fields
 local pf_dplus_ascp_type      = ProtoField.uint16 ( proto_shortname .. ".ascp.type" , "ASCP Type", base.DEC, ascp_type, 0xE000)
 local pf_dplus_ascp_length    = ProtoField.uint16 ( proto_shortname .. ".ascp.length" , "Payload Length", base.DEC, nil, 0x1FFF)
@@ -47,14 +53,20 @@ local pf_dplus_keepalive       = ProtoField.uint8 ( proto_shortname .. ".keepali
 local pf_dplus_ctl_code       = ProtoField.uint16 ( proto_shortname .. ".ctl" , "Control Code", base.HEX)
 local pf_dplus_ctl_state       = ProtoField.uint8 ( proto_shortname .. ".state" , "New state", base.HEX, state_trans)
 local pf_dplus_query_type     = ProtoField.uint16 ( proto_shortname .. ".query.type" , "Type", base.HEX, query_types)
+local pf_dplus_query_entries  = ProtoField.uint16 ( proto_shortname .. ".query.entries" , "Number of entries", base.DEC)
 local pf_dplus_auth           = ProtoField.string ( proto_shortname .. ".auth" , "Authentication Result", base.ASCII, auth_result)
 local pf_dplus_dongle_serial  = ProtoField.string ( proto_shortname .. ".dongle.sn" , "Dongle Serial Number", base.ASCII)
 local pf_dplus_epoch          = ProtoField.uint32 ( proto_shortname .. ".epoch" , "*NIX Epoch", base.ASCII)
 
 p_dplus.fields = {
 	pf_dplus_ascp_type, pf_dplus_ascp_length, pf_dplus_keepalive, pf_dplus_ctl_code, pf_dplus_ctl_state, 
-	pf_dplus_query_type, pf_dplus_auth, pf_dplus_dongle_serial, pf_dplus_epoch,
+	pf_dplus_query_type, pf_dplus_query_entries, pf_dplus_auth, pf_dplus_dongle_serial, pf_dplus_epoch,
 }
+
+-- Ternary operator
+local function fif(condition, if_true, if_false)
+	if condition then return if_true else return if_false end
+end
 
 function p_dplus.dissector ( buffer, pinfo, tree)
 	-- Validate packet length
@@ -144,6 +156,53 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 				time_tree:add_expert_info( PI_PROTOCOL, PI_COMMENT, "Implied time zone: UTC")
 			end
 			pinfo.cols.info = "Current Date: " .. time
+		
+		elseif ( qtype == 0x0006 and math.fmod( len-8, 20) == 0 ) then
+			-- Connected Users List
+			local nb_results = buffer( 6, 2):le_uint()
+			subtree:add_le( pf_dplus_query_entries, buffer( 6, 2))
+			local cntd_tree = subtree:add( p_dplus, buffer(8), "Connected Users List")
+			local i = 0
+			while ( i < nb_results ) do
+				local modl = buffer(8+(20*i),1)
+				local mod_name = fif( modl:string() == " ", "(Unmapped)", modl:string())
+				local qrz  = buffer(8+(20*i+1),9)
+				local qrz_str = qrz:string():gsub( " ", "")
+				local ctype = buffer(8+(20*i+10),2)
+				local ctype_val = buffer(8+(20*i+10),1):string()
+				local ts = buffer(8+(20*i+12),4)
+				local entry = subtree:add( p_dplus, buffer(8+(20*i),20), string.format( "User %s on module %s", qrz_str, mod_name))
+				
+				entry:add( modl, "Mapped module: " .. mod_name)
+				entry:add( qrz, "Callsign: " .. qrz_str)
+				if ( client_type[ctype_val] ~= nil ) then
+					entry:add( ctype, string.format("Client Type: %s ('%s')", client_type[ctype_val], ctype_val))
+				else
+					local unkent = entry:add( ctype, string.format( "Client Type: Unknown ('%s')", ctype_val))
+					unkent:add_expert_info( PI_UNDECODED, PI_WARN, "Unknown client type")
+				end
+				
+				entry:add_le ( ts, "Connected Since (epoch): " .. ts:le_uint())
+				i = i + 1 
+			end
+			pinfo.cols.info = string.format( "Connected Users List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
+		
+		elseif ( qtype == 0x0007 and math.fmod( len-6, 28) == 0 ) then
+			-- Last Heard List
+			local nb_results = buffer( 4, 2):le_uint()
+			local ts = buffer(8+(20*i),4)
+			
+			subtree:add_le( pf_dplus_query_entries, buffer( 4, 2))
+			local cntd_tree = subtree:add( p_dplus, buffer(10), "Last Heard List")
+			cntd_tree:add_le ( ts, "Generated at (epoch): " .. ts:le_uint())
+			local i = 0
+			while ( i < nb_results ) do
+				--cal entry = subtree:add( p_dplus, buffer(8+(20*i),20), string.format( "User %s on module %s", qrz_str, mod_name))
+				
+				--entry:add_le ( ts, "Connected Since (epoch): " .. ts:le_uint())
+				i = i + 1
+			end
+			pinfo.cols.info = string.format( "Last Heard List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
 		
 		elseif ( query_types[qtype] ~= nil and len == 4 ) then
 			pinfo.cols.info = query_types[qtype] .. " Request"
