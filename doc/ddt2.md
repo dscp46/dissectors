@@ -11,9 +11,19 @@ Prior to being sent, the messages are yEncoded with the following parameters:
   * Forbidden characters: `0x00`, `0x11`, `0x13`, `0x1A`, `0xFD`, `0xFE`, `0xFF`
   * Offset: 64
 
+Per [D-Star specification](https://www.jarl.com/d-star/STD6_0a.pdf), section 6.2:
+> データフレームが “0xE7, 0x84, 0x76” のデータ列となり、かつ音声フレームが無音 パターン“0x9E, 0x8D,
+0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8”の場合にパケッ トロスとして扱うため使用できません。
+
+Best way to ensure we don't trigger packet loss mechanisms would be to also escape `0xE7`, as recommended in said subsection, I'll file a PR on this. No extra mitigation necessary for the DV Fast Data, since the center byte of the Voice frame is forced to `0x02` (Mitigation Byte) in that case, to mute the AMBE codec (check section 7.3).
+
 ## Message formatting
 
-All fields, unless explicitely stated, are unsigned integers in the network order.
+  * Once yDecoded, a D-Rats packet is organised as described below.
+  * All fields, unless explicitely stated, are unsigned integers in the network order.
+  * Strings are fixed-size, not null-terminated.
+  * Presence of a body / payload is optional (FIXME: confirm this reading back d-rats' code)
+  * The field sizes, in the following graph are given in **bits**, not **bytes** for readability.
 
 ```mermaid
 ---
