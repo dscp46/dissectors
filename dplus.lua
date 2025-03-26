@@ -190,7 +190,7 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 		elseif ( qtype == 0x0007 and math.fmod( len-6, 28) == 0 ) then
 			-- Last Heard List
 			local nb_results = buffer( 4, 2):le_uint()
-			local ts = buffer(8+(20*i),4)
+			local ts = buffer(6,4)
 			
 			subtree:add_le( pf_dplus_query_entries, buffer( 4, 2))
 			local cntd_tree = subtree:add( p_dplus, buffer(10), "Last Heard List")
