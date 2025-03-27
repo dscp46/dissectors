@@ -187,7 +187,7 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 			end
 			pinfo.cols.info = string.format( "Connected Users List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
 		
-		elseif ( qtype == 0x0007 and math.fmod( len-6, 28) == 0 ) then
+		elseif ( qtype == 0x0007 and math.fmod( len-10, 24) == 0 ) then
 			-- Last Heard List
 			local nb_results = buffer( 4, 2):le_uint()
 			local ts = buffer(6,4)
@@ -197,9 +197,22 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 			cntd_tree:add_le ( ts, "Generated at (epoch): " .. ts:le_uint())
 			local i = 0
 			while ( i < nb_results ) do
-				--cal entry = subtree:add( p_dplus, buffer(8+(20*i),20), string.format( "User %s on module %s", qrz_str, mod_name))
+				local qrz = buffer(10+(24*i),8)
+				local qrz_str = qrz:string():gsub( '^%s*(.-)%s*$', '%1')
+				local via = buffer(18+(24*i),7)
+				local via_str = via:string():gsub( '^%s*(.-)%s*$', '%1')
+				local modl = buffer(25+(24*i),1)
+				local modl_name = fif( modl:string() ~= " ", modl:string(), "(Unlinked)")
+				local rx_ts = buffer(26+(24*i),4)
+				local resv = buffer(30+(24*i),4)
 				
-				--entry:add_le ( ts, "Connected Since (epoch): " .. ts:le_uint())
+				local entry = subtree:add( p_dplus, buffer(10+(24*i),24), string.format( "User %s via %s on module %s", qrz_str, via_str, modl_name)) 
+				
+				entry:add( qrz, "Callsign: " .. qrz_str)
+				entry:add( via, "Via: " .. via_str)
+				entry:add( modl, "Module: " .. modl_name)
+				entry:add_le ( rx_ts, "Last heard on (epoch): " .. rx_ts:le_uint())
+				entry:add( resv, "Reserved" )
 				i = i + 1
 			end
 			pinfo.cols.info = string.format( "Last Heard List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
