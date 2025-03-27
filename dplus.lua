@@ -68,6 +68,38 @@ local function fif(condition, if_true, if_false)
 	if condition then return if_true else return if_false end
 end
 
+-- Enumerate Repeaters/Clients
+local function dplus_enumerate_peers( buffer, tree, nb_results, is_repeater)
+	local peer_str = fif( is_repeater == true, "Repeater", "Client") 
+	local i = 0
+	while ( i < nb_results ) do
+		local modl = buffer(8+(20*i),1)
+		local mod_name = fif( modl:string() == " ", "(Unmapped)", modl:string())
+		local qrz  = buffer(8+(20*i+1),9)
+		local qrz_str = qrz:string():gsub( '^%s*(.-)%s*$', '%1')
+		local ctype = buffer(8+(20*i+10),2)
+		local ctype_val = buffer(8+(20*i+10),1):string()
+		local ts = buffer(8+(20*i+12),4)
+		local entry = tree:add( p_dplus, buffer(8+(20*i),20), string.format( "%s %s on module %s", peer_str, qrz_str, mod_name))
+		
+		entry:add( modl, "Mapped module: " .. mod_name)
+		entry:add( qrz, "Callsign: " .. qrz_str)
+		if ( is_repeater ~= true ) then
+			if ( client_type[ctype_val] ~= nil ) then
+				entry:add( ctype, string.format("%s Type: %s ('%s')", peer_str, client_type[ctype_val], ctype_val))
+			else
+				local unkent = entry:add( ctype, string.format( "%s Type: Unknown ('%s')", peer_str, ctype_val))
+				unkent:add_expert_info( PI_UNDECODED, PI_WARN, string.format( "Unknown %s type", string.lower(peer_str)))
+			end
+		else
+			entry:add( ctype, "Reserved")
+		end
+		
+		entry:add_le ( ts, "Connected Since (epoch): " .. ts:le_uint())
+		i = i + 1 
+	end
+end
+
 function p_dplus.dissector ( buffer, pinfo, tree)
 	-- Validate packet length
 	if ( buffer:len() < 3 ) then return end
@@ -156,35 +188,21 @@ function p_dplus.dissector ( buffer, pinfo, tree)
 				time_tree:add_expert_info( PI_PROTOCOL, PI_COMMENT, "Implied time zone: UTC")
 			end
 			pinfo.cols.info = "Current Date: " .. time
-		
+			
+		elseif ( qtype == 0x0105 and math.fmod( len-8, 20) == 0 ) then
+			-- Connected Repeaters List
+			local nb_results = buffer( 6, 2):le_uint()
+			subtree:add_le( pf_dplus_query_entries, buffer( 6, 2))
+			local cntd_tree = subtree:add( p_dplus, buffer(8), "Connected Repeaters List")
+			dplus_enumerate_peers( buffer, cntd_tree, nb_results, true)
+			pinfo.cols.info = string.format( "Connected Repeaters List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
+			
 		elseif ( qtype == 0x0006 and math.fmod( len-8, 20) == 0 ) then
 			-- Connected Users List
 			local nb_results = buffer( 6, 2):le_uint()
 			subtree:add_le( pf_dplus_query_entries, buffer( 6, 2))
 			local cntd_tree = subtree:add( p_dplus, buffer(8), "Connected Users List")
-			local i = 0
-			while ( i < nb_results ) do
-				local modl = buffer(8+(20*i),1)
-				local mod_name = fif( modl:string() == " ", "(Unmapped)", modl:string())
-				local qrz  = buffer(8+(20*i+1),9)
-				local qrz_str = qrz:string():gsub( " ", "")
-				local ctype = buffer(8+(20*i+10),2)
-				local ctype_val = buffer(8+(20*i+10),1):string()
-				local ts = buffer(8+(20*i+12),4)
-				local entry = subtree:add( p_dplus, buffer(8+(20*i),20), string.format( "User %s on module %s", qrz_str, mod_name))
-				
-				entry:add( modl, "Mapped module: " .. mod_name)
-				entry:add( qrz, "Callsign: " .. qrz_str)
-				if ( client_type[ctype_val] ~= nil ) then
-					entry:add( ctype, string.format("Client Type: %s ('%s')", client_type[ctype_val], ctype_val))
-				else
-					local unkent = entry:add( ctype, string.format( "Client Type: Unknown ('%s')", ctype_val))
-					unkent:add_expert_info( PI_UNDECODED, PI_WARN, "Unknown client type")
-				end
-				
-				entry:add_le ( ts, "Connected Since (epoch): " .. ts:le_uint())
-				i = i + 1 
-			end
+			dplus_enumerate_peers( buffer, cntd_tree, nb_results, false)
 			pinfo.cols.info = string.format( "Connected Users List, %d entr%s", nb_results, fif( nb_results ~= 1, "ies", "y"))
 		
 		elseif ( qtype == 0x0007 and math.fmod( len-10, 24) == 0 ) then
