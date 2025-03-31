@@ -1,5 +1,4 @@
 -- yapp_u.lua - Unidirectional YAPP Transfer
-local zlib = require("zlib")
 
 -- Some module-specific constants
 local proto_shortname = "yapp_u"
@@ -88,13 +87,13 @@ function p_yapp_u.dissector ( buffer, pinfo, tree)
 			
 		elseif ( encoding == "gzip" ) then
 			pinfo.private["gzip"] = true
-			local status, decompressed_data = pcall(function()
-				local stream = zlib.inflate()
-				return stream(unpacked_tvb:raw())
-			end)
+			local status, decompressed_data = pcall(function() return unpacked_tvb():uncompress_zlib() end)
+			if ( not status ) then
+				status, decompressed_data = pcall(function() return unpacked_tvb():uncompress() end)
+			end
 			
 			if ( status ) then
-				local decompressed_tvb = ByteArray.new(decompressed_data, true):tvb("Decompressed Payload")
+				local decompressed_tvb = ByteArray.new(decompressed_data:raw(), true):tvb("Decompressed Payload")
 				subtree:add( p_yapp_u, decompressed_tvb(), "GZIP Decompressed Data")
 				
 				-- Call next dissector, if applicable
