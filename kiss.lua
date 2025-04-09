@@ -147,7 +147,7 @@ function p_kiss.dissector ( buffer, pinfo, tree)
 							subtree:add_expert_info( PI_MALFORMED, PI_ERROR, "Malformed KISS Frame")
 							return
 						end
-						
+						i = i + 1
 					else
 						ba_payload:append( ByteArray.new( string.format( "%02X", cur_byte)))
 					end
