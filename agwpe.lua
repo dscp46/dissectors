@@ -79,6 +79,11 @@ local function agw_get_rx_dkind_name ( datakind)
 	return "Undocumented"
 end
 
+local function agw_registration_result( result)
+	if( result == 1 ) then return "Success" end
+	return "Failed"
+end
+
 -- Safely extract a sometimes-not-null terminated string from a TVB
 local function agw_get_string( buffer)
 	local first_null_pos = -1
@@ -142,8 +147,6 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	subtree:add_le( buffer(28, 4), "Data length: ".. agw_datalen)
 	if( agw_datalen ~= 0 ) then
 		-- The packet has a payload
-		--subtree:add( buffer(32, 4), "User (4 bytes)")
-		--subtree:add( buffer(36), "Payload (" .. agw_datalen .. " bytes)")
 		if( agw_datakind == 0x4B ) then
 			-- The packet has a payload
 			subtree:add( buffer(32, 4), "User (4 bytes)")
@@ -173,12 +176,30 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 				subtree:add( buffer(287, 255), "Password: "..agw_get_string( buffer(287, 255):tvb()))
 			end
 		end
+
+		if ( agw_datakind == 0x58 and not is_dte_to_dce( pinfo) ) then
+			subtree:add( buffer(32, 4), "User (4 bytes)")
+			if ( agw_datalen == 1 ) then
+				local agw_reg_result = buffer(36, 1):uint()
+				subtree:add( buffer(36, 1), "Registration result: " .. agw_registration_result( agw_reg_result) )
+				
+				pinfo.cols.info = "Callsign " .. agw_callfrom .. fif(agw_reg_result == 1, "", " not" ).. " registered."
+			else
+				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Malformed callsign registration answer")
+			end
+		end
 			
-			
-		
 	else
 		-- The packet doesn't have a payload
 		subtree:add( buffer(32, 4), "User (4 bytes)")
+
+		if ( agw_datakind == 0x58 ) then
+			if( is_dte_to_dce( pinfo) ) then
+				pinfo.cols.info = "Register callsign " .. agw_callfrom
+			else
+				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Malformed callsign registration answer")
+			end
+		end
 	end
 	
 end
