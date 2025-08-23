@@ -157,7 +157,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	local subtree_title = "AGWPE Protocol, Src: \"" .. agw_callfrom .. "\", Dst: \"" .. agw_callto .. "\", PID: " .. agw_pid
 
 	-- Update info column
-	if( agw_datakind == 0x43 or agw_datakind == 0x63 or agw_datakind == 0x44) then
+	if( agw_datakind == 0x43 or agw_datakind == 0x63 or agw_datakind == 0x44 or agw_datakind == 0x64 or agw_datakind == 0x59 ) then
 		pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid
 	end
 
@@ -250,6 +250,15 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			end
 		end
 		
+		if ( agw_datakind == 0x59 and not is_dte_to_dce( pinfo) ) then
+			local outstanding_frames = buffer(36, 4)
+			pinfo.cols.info:append( ", " .. outstanding_frames:le_uint() .. " frame(s) outstanding for connection")
+			subtree:add( outstanding_frames, outstanding_frames:le_uint() .. " frame(s) outstanding for connection")
+		end
+		
+		if ( agw_datakind == 0x64 ) then
+			pinfo.cols.info:append( " [DISC]")
+		end
 	else
 		-- The packet doesn't have a payload
 		subtree:add( buffer(32, 4), "User (4 bytes)")
@@ -268,6 +277,18 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 		
 		if ( agw_datakind == 0x47 and is_dte_to_dce( pinfo) ) then
 			pinfo.cols.info = "Port info request"
+		end
+		
+		if ( agw_datakind == 0x59 and is_dte_to_dce( pinfo) ) then
+			pinfo.cols.info:append( ", Request outstanding frames on a connection")
+		end
+		
+		if ( agw_datakind == 0x63 or agw_datakind == 0x43 or agw_datakind == 0x76 ) then
+			pinfo.cols.info:append( " [SABM(E)]")
+		end
+		
+		if ( agw_datakind == 0x64 ) then
+			pinfo.cols.info:append( " [DISC]")
 		end
 	end
 	
