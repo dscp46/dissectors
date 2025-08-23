@@ -133,6 +133,11 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	-- Subtree title
 	local subtree_title = "AGWPE Protocol, Src: \"" .. agw_callfrom .. "\", Dst: \"" .. agw_callto .. "\", PID: " .. agw_pid
 
+	-- Update info column
+	if( agw_datakind == 0x43 or agw_datakind == 0x63 or agw_datakind == 0x44) then
+		pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid
+	end
+
 	-- Subtree
 	local subtree = tree:add( p_agwpe, buffer(), subtree_title)
 	subtree:add( pf_agwpe_dir, fif( is_dte_to_dce ( pinfo) == true, P2P_DIR_SENT, P2P_DIR_RECV), "[Direction: " .. fif(is_dte_to_dce ( pinfo) == true, "Outgoing", "Incoming") .. "]" )
@@ -145,6 +150,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	subtree:add( pf_agwpe_src, buffer( 8,10), agw_callfrom, "Source: \"" .. agw_callfrom .. "\"")
 	subtree:add( pf_agwpe_dst, buffer(18,10), agw_callto, "Destination: \"" .. agw_callto .. "\"")
 	subtree:add_le( buffer(28, 4), "Data length: ".. agw_datalen)
+
 	if( agw_datalen ~= 0 ) then
 		-- The packet has a payload
 		if( agw_datakind == 0x4B ) then
@@ -188,7 +194,11 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Malformed callsign registration answer")
 			end
 		end
-			
+		
+		if ( agw_datakind == 0x44 ) then
+			pinfo.cols.info:append( ", Connected Data")
+			subtree:add( buffer(36), "Connected data payload")
+		end
 	else
 		-- The packet doesn't have a payload
 		subtree:add( buffer(32, 4), "User (4 bytes)")
@@ -199,6 +209,10 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			else
 				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Malformed callsign registration answer")
 			end
+		end
+
+		if ( agw_datakind == 0x6d and is_dte_to_dce( pinfo) ) then
+			pinfo.cols.info = "Enable monitoring frames"
 		end
 	end
 	
