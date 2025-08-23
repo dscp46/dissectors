@@ -23,15 +23,17 @@ if( P2P_DIR_RECV == nil ) then
 end
 
 -- Fields
-local pf_agwpe_src  = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
-local pf_agwpe_dst  = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
-local pf_agwpe_port  = ProtoField.uint8( proto_shortname .. ".port" , "Engine Port", base.DEC)
-local pf_agwpe_kind = ProtoField.string( proto_shortname .. ".kind", "DataKind", base.ASCII)
-local pf_agwpe_pid   = ProtoField.uint8( proto_shortname .. ".pid" , "PID", base.DEC)
-local pf_agwpe_dir    = ProtoField.int8( proto_shortname .. ".direction" , "Direction")
+local pf_agwpe_src   = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
+local pf_agwpe_dst   = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
+local pf_agwpe_port   = ProtoField.uint8( proto_shortname .. ".port" , "Engine Port", base.DEC)
+local pf_agwpe_kind  = ProtoField.string( proto_shortname .. ".kind", "DataKind", base.ASCII)
+local pf_agwpe_pid    = ProtoField.uint8( proto_shortname .. ".pid" , "PID", base.DEC)
+local pf_agwpe_dir     = ProtoField.int8( proto_shortname .. ".direction" , "Direction")
+local pf_agwpe_mon   = ProtoField.string( proto_shortname .. ".mon" , "Monitor", base.ASCII)
+local pf_agwpe_mon_s = ProtoField.string( proto_shortname .. ".mon.s" , "Monitor (S type)", base.ASCII)
 
 p_agwpe.fields = {
-	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir
+	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir, pf_agwpe_mon, pf_agwpe_mon_s
 }
 
 --- [ Dissector helper functions ] ---
@@ -107,6 +109,27 @@ local function agwpe_port_substr( buffer)
 	return result
 end
 
+local function agwpe_get_s_type( buffer)
+	local length = buffer:len()
+	local type_start = -1
+	local type_len = 0
+	for i=0,length-1,1 do
+		if( buffer(i, 1):uint() == 0x3c ) then
+			type_start = i + 1
+			break
+		end
+	end
+	if( type_start ~= -1 ) then
+		for i=type_start,length-1,1 do
+			if( buffer(i, 1):uint() == 0x20 ) then
+				type_len = i - type_start
+				return buffer( type_start, type_len)
+			end
+		end
+	end
+	return -1
+end
+
 -- Safely extract a sometimes-not-null terminated string from a TVB
 local function agw_get_string( buffer)
 	local first_null_pos = -1
@@ -166,7 +189,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	subtree:add( pf_agwpe_dir, fif( is_dte_to_dce ( pinfo) == true, P2P_DIR_SENT, P2P_DIR_RECV), "[Direction: " .. fif(is_dte_to_dce ( pinfo) == true, "Outgoing", "Incoming") .. "]" )
 	subtree:add( pf_agwpe_port, buffer( 0, 1), agw_port, "Engine Port: " .. agw_port)
 	subtree:add( buffer( 1, 3), "Reserved")
-	subtree:add( pf_agwpe_kind, buffer( 4, 1), buffer( 4, 1):string(), "DataKind: ".. agw_get_tx_dkind_name(agw_datakind))
+	subtree:add( pf_agwpe_kind, buffer( 4, 1), buffer( 4, 1):string(), "DataKind: ".. fif( is_dte_to_dce ( pinfo) == true, agw_get_tx_dkind_name(agw_datakind), agw_get_rx_dkind_name(agw_datakind)))
 	subtree:add( buffer( 5, 1), "Reserved")
 	subtree:add( pf_agwpe_pid, buffer( 6, 1), agw_pid)
 	subtree:add( buffer( 7, 1), "Reserved")
@@ -218,11 +241,13 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			end
 		end
 		
+		-- Connected Data
 		if ( agw_datakind == 0x44 ) then
 			pinfo.cols.info:append( ", Connected Data")
 			subtree:add( buffer(36), "Connected data payload")
 		end
 		
+		-- Port Information
 		if ( agw_datakind == 0x47 and not is_dte_to_dce( pinfo) ) then
 			local avail_ports = buffer(36, 1):uint()-0x30
 			local count_ports = agwpe_count_ports( buffer(38))
@@ -250,14 +275,35 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			end
 		end
 		
+		-- Outstanding frame
 		if ( agw_datakind == 0x59 and not is_dte_to_dce( pinfo) ) then
 			local outstanding_frames = buffer(36, 4)
 			pinfo.cols.info:append( ", " .. outstanding_frames:le_uint() .. " frame(s) outstanding for connection")
 			subtree:add( outstanding_frames, outstanding_frames:le_uint() .. " frame(s) outstanding for connection")
 		end
 		
+		-- Disconnect
 		if ( agw_datakind == 0x64 ) then
 			pinfo.cols.info:append( " [DISC]")
+		end
+		
+		-- Monitored Supervisory Info
+		if ( agw_datakind == 0x53 ) then
+			local packet_type = agwpe_get_s_type( buffer(36))
+			if( packet_type ~= -1 ) then
+				subtree:add( pf_agwpe_mon_s, packet_type, packet_type:string(), "S-Frame type: " .. packet_type:string())
+				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (mon)", "")
+			else
+				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Did not detect S frame type")
+			end
+		end
+		
+		if ( agw_datakind == 0x54 ) then
+			local packet_type = agwpe_get_s_type( buffer(36))
+			if ( packet_type ~= -1 and packet_type:string() ~= "I" ) then
+				subtree:add( pf_agwpe_mon_s, packet_type, packet_type:string(), "S-Frame type: " .. packet_type:string())
+				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (own)", "")
+			end
 		end
 	else
 		-- The packet doesn't have a payload
