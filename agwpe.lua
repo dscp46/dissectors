@@ -84,6 +84,29 @@ local function agw_registration_result( result)
 	return "Failed"
 end
 
+local function agwpe_count_ports( buffer)
+	local result = 0
+	local length = buffer:len()
+	for i=0,length-1,1 do
+		if( buffer(i, 1):uint() == 0x3B ) then
+			result = result + 1
+		end
+	end
+	return result
+end
+
+local function agwpe_port_substr( buffer)
+	local length = buffer:len()
+	local result = 0;
+	for i=0,length-1,1 do
+		if( buffer(i, 1):uint() == 0x3B ) then
+			return result
+		end
+		result = result + 1
+	end
+	return result
+end
+
 -- Safely extract a sometimes-not-null terminated string from a TVB
 local function agw_get_string( buffer)
 	local first_null_pos = -1
@@ -199,6 +222,34 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			pinfo.cols.info:append( ", Connected Data")
 			subtree:add( buffer(36), "Connected data payload")
 		end
+		
+		if ( agw_datakind == 0x47 and not is_dte_to_dce( pinfo) ) then
+			local avail_ports = buffer(36, 1):uint()-0x30
+			local count_ports = agwpe_count_ports( buffer(38))
+			pinfo.cols.info = "Port information"
+			subtree:add( buffer(32, 4), "User (Reserved)")
+			local it_port = 1
+			local cur_pos = 38
+			local subtree_av_ports = subtree:add( "Available ports")
+			for i=1,avail_ports,1 do
+				local subbuf = buffer(cur_pos, agwpe_port_substr( buffer(cur_pos)))
+				local str = subbuf( 6):string()
+				subtree_av_ports:add( subbuf, it_port .. ": \"" .. str .. "\"")
+				it_port = it_port + 1
+				cur_pos = cur_pos + subbuf:len() + 1
+			end
+			if ( avail_ports ~= count_ports ) then
+				local subtree_iv_ports = subtree:add( "Invisible ports")
+				for i=it_port,count_ports,1 do
+					local subbuf = buffer(cur_pos, agwpe_port_substr( buffer(cur_pos)))
+					local str = subbuf( 6):string()
+					subtree_iv_ports:add( subbuf, it_port .. ": \"" .. str .. "\"")
+					it_port = it_port + 1
+					cur_pos = cur_pos + subbuf:len() + 1
+				end
+			end
+		end
+		
 	else
 		-- The packet doesn't have a payload
 		subtree:add( buffer(32, 4), "User (4 bytes)")
@@ -213,6 +264,10 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 
 		if ( agw_datakind == 0x6d and is_dte_to_dce( pinfo) ) then
 			pinfo.cols.info = "Enable monitoring frames"
+		end
+		
+		if ( agw_datakind == 0x47 and is_dte_to_dce( pinfo) ) then
+			pinfo.cols.info = "Port info request"
 		end
 	end
 	
