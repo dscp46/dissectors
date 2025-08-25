@@ -130,6 +130,27 @@ local function agwpe_get_s_type( buffer)
 	return -1
 end
 
+local function agw_is_ui_aprs( buffer)
+	local length = buffer:len()
+	if ( length < 2 ) then return false end
+	local aprs_type = buffer(0,1):uint()
+	if ( aprs_type < 0x1c ) then return false end
+	if ( aprs_type >= 0x1e and aprs_type <= 0x20 ) then return false end
+	if ( aprs_type == 0x22 ) then return false end
+	if ( aprs_type == 0x28 ) then return false end
+	if ( aprs_type == 0x2D ) then return false end
+	if ( aprs_type == 0x2E ) then return false end
+	if ( aprs_type >= 0x30 and aprs_type <= 0x39 ) then return false end
+	if ( aprs_type >= 0x41 and aprs_type <= 0x53 ) then return false end
+	if ( aprs_type >= 0x55 and aprs_type <= 0x5A ) then return false end
+	if ( aprs_type >= 0x5C and aprs_type <= 0x5E ) then return false end
+	if ( aprs_type >= 0x61 and aprs_type <= 0x7A ) then return false end
+	if ( aprs_type == 0x7C ) then return false end
+	if ( aprs_type >= 0x7E ) then return false end
+	return true
+end
+
+
 -- Safely extract a sometimes-not-null terminated string from a TVB
 local function agw_get_string( buffer)
 	local first_null_pos = -1
@@ -180,7 +201,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 	local subtree_title = "AGWPE Protocol, Src: \"" .. agw_callfrom .. "\", Dst: \"" .. agw_callto .. "\", PID: " .. agw_pid
 
 	-- Update info column
-	if( agw_datakind == 0x43 or agw_datakind == 0x63 or agw_datakind == 0x44 or agw_datakind == 0x64 or agw_datakind == 0x59 ) then
+	if( agw_datakind == 0x43 or agw_datakind == 0x63 or agw_datakind == 0x44 or agw_datakind == 0x64 or agw_datakind == 0x55 or agw_datakind == 0x59 or agw_datakind == 0x4D ) then
 		pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid
 	end
 
@@ -298,11 +319,22 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			end
 		end
 		
+		-- Monitored own traffic
 		if ( agw_datakind == 0x54 ) then
 			local packet_type = agwpe_get_s_type( buffer(36))
 			if ( packet_type ~= -1 and packet_type:string() ~= "I" ) then
 				subtree:add( pf_agwpe_mon_s, packet_type, packet_type:string(), "S-Frame type: " .. packet_type:string())
 				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (own)", "")
+			end
+		end
+		
+		-- UI Frames
+		if ( agw_datakind == 0x4D ) then
+			pinfo.cols.info:append( " [UI]")
+			subtree:add( buffer(32, 4), "User (4 bytes)")
+			subtree:add( buffer(36), "Payload")
+			if ( agw_is_ui_aprs( buffer(36)) ) then
+				Dissector.get("aprs"):call( buffer(36):tvb(), pinfo, tree)
 			end
 		end
 	else
