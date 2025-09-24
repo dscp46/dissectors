@@ -44,6 +44,7 @@ local xid_pi = {
 	[0x7] = "Tx Window size (k)",
 	[0x8] = "Rx Window size (k)",
 	[0x9] = "ACK Timer (T1)",
+	[0xa] = "Max retries (N2)",
 }
 
 -- Fields
@@ -102,10 +103,11 @@ local pf_agwpe_xid_n1_rx       = ProtoField.uint16( proto_shortname .. ".xid.n1_
 local pf_agwpe_xid_k_tx        = ProtoField.uint8(  proto_shortname .. ".xid.k_tx"       , "Tx Window size (k)", base.DEC)
 local pf_agwpe_xid_k_rx        = ProtoField.uint8(  proto_shortname .. ".xid.k_rx"       , "Rx Window size (k)", base.DEC)
 local pf_agwpe_xid_t1          = ProtoField.uint16( proto_shortname .. ".xid.t1"         , "Wait for ACK timer (T1)", base.UNIT_STRING, {" ms"})
+local pf_agwpe_xid_n2          = ProtoField.uint8(  proto_shortname .. ".xid.n2"         , "Max retries (N2)", base.UNIT_STRING, {" time(s)"})
 
 p_agwpe.fields = {
 	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir, pf_agwpe_mon, pf_agwpe_mon_s,
-	pf_agwpe_xid_fi, pf_agwpe_xid_gi, pf_agwpe_xid_gl, pf_agwpe_xid_pi, pf_agwpe_xid_pl, 
+	pf_agwpe_xid_fi, pf_agwpe_xid_gi, pf_agwpe_xid_gl, pf_agwpe_xid_pi, pf_agwpe_xid_pl, pf_agwpe_xid_n2,
 	pf_agwpe_xid_cop, pf_agwpe_xid_cop_abm, pf_agwpe_xid_cop_unrmp, pf_agwpe_xid_cop_unrms, pf_agwpe_xid_cop_uarmp, pf_agwpe_xid_cop_uarms, 
 	pf_agwpe_xid_cop_hdx, pf_agwpe_xid_cop_fdx, pf_agwpe_xid_cop_rsvd, pf_agwpe_xid_n1_tx, pf_agwpe_xid_n1_rx, pf_agwpe_xid_k_tx, pf_agwpe_xid_k_rx,
 	pf_agwpe_xid_t1, pf_agwpe_xid_hof_rsvd_1, pf_agwpe_xid_hof_rej, pf_agwpe_xid_hof_srej, pf_agwpe_xid_hof_ui, pf_agwpe_xid_hof_srim, 
@@ -208,6 +210,10 @@ local function agwpe_get_s_type( buffer)
 	return -1
 end
 
+local function agwpe_is_final( buffer)
+	return ( string.find( buffer():string(), "F=1") ~= nil )
+end
+
 local function agw_dissect_xid( buffer, pinfo, tree)
 	local length = buffer:len()
 	-- References the byte *AFTER* the first \r
@@ -216,7 +222,7 @@ local function agw_dissect_xid( buffer, pinfo, tree)
 		return nil
 	end
 	-- Length including the Format Identifier
-	local xid_len = buffer( xid_start+2, 2):uint() + 1
+	local xid_len = buffer( xid_start+2, 2):uint() + 4
 	local xid_pos = 4
 	local xid_payload = buffer( xid_start, xid_len) 
 	local subtree = tree:add( xid_payload, "AX.25 XID Payload" )
@@ -293,6 +299,12 @@ local function agw_dissect_xid( buffer, pinfo, tree)
 			local t1_tree = subtree:add( pf_agwpe_xid_t1, xid_payload( xid_pos+2, param_len))
 			t1_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
 			t1_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+			
+		elseif ( param_id == 0xa ) then
+			local n2_tree = subtree:add( pf_agwpe_xid_n2, xid_payload( xid_pos+2, param_len))
+			n2_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			n2_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+			
 		else
 			local param_tree = subtree:add( xid_payload( xid_pos, 2+param_len), "Parameter TLV" )
 			param_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
@@ -490,6 +502,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (mon)", "")
 				if ( packet_type:string() == "XID" ) then
 					agw_dissect_xid( buffer(36):tvb(), pinfo, tree)
+					pinfo.cols.info:append( fif( agwpe_is_final( buffer(36)), " (Final)", " (Poll)"))
 				end
 			else
 				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Did not detect S frame type")
@@ -504,6 +517,7 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (own)", "")
 				if ( packet_type:string() == "XID" ) then
 					agw_dissect_xid( buffer(36):tvb(), pinfo, tree)
+					pinfo.cols.info:append( fif( agwpe_is_final( buffer(36)), " (Final)", " (Poll)"))
 				end
 			end
 		end
