@@ -22,6 +22,30 @@ if( P2P_DIR_RECV == nil ) then
 	P2P_DIR_RECV    =  1
 end
 
+-- LUT for Booleans
+local yesno = {
+	[0] = "No",
+	[1] = "Yes"
+}
+
+local xid_fi = {
+	[0x82] = "General-Purpose XID Information"
+}
+
+local xid_gi = {
+	[0x80] = "Parameters Negociation"
+}
+
+local xid_pi = {
+	[0x2] = "Class of Procedures",
+	[0x3] = "HDLC Optional Functions",
+	[0x5] = "Max Tx I field length (N1)",
+	[0x6] = "Max Rx I field length (N1)",
+	[0x7] = "Tx Window size (k)",
+	[0x8] = "Rx Window size (k)",
+	[0x9] = "ACK Timer (T1)",
+}
+
 -- Fields
 local pf_agwpe_src   = ProtoField.string( proto_shortname .. ".src" , "Source", base.ASCII)
 local pf_agwpe_dst   = ProtoField.string( proto_shortname .. ".dst" , "Destination", base.ASCII)
@@ -32,10 +56,64 @@ local pf_agwpe_dir     = ProtoField.int8( proto_shortname .. ".direction" , "Dir
 local pf_agwpe_mon   = ProtoField.string( proto_shortname .. ".mon" , "Monitor", base.ASCII)
 local pf_agwpe_mon_s = ProtoField.string( proto_shortname .. ".mon.s" , "Monitor (S type)", base.ASCII)
 
-p_agwpe.fields = {
-	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir, pf_agwpe_mon, pf_agwpe_mon_s
-}
+local pf_agwpe_xid_fi          = ProtoField.uint8(  proto_shortname .. ".xid.fi"         , "Format Identifier"        , base.HEX, xid_fi)
+local pf_agwpe_xid_gi          = ProtoField.uint8(  proto_shortname .. ".xid.gi"         , "Group Identifier"         , base.HEX, xid_gi)
+local pf_agwpe_xid_gl          = ProtoField.uint16( proto_shortname .. ".xid.gl"         , "Group Length"             , base.UNIT_STRING, {" byte(s)"})
+local pf_agwpe_xid_pi          = ProtoField.uint8(  proto_shortname .. ".xid.pi"         , "Parameter Identifier"     , base.HEX, xid_pi)
+local pf_agwpe_xid_pl          = ProtoField.uint8(  proto_shortname .. ".xid.pl"         , "Parameter Length"         , base.UNIT_STRING, {" byte(s)"})
+local pf_agwpe_xid_cop         = ProtoField.uint16( proto_shortname .. ".xid.cop"        , "Class of Procedures"      , base.HEX)
+local pf_agwpe_xid_cop_abm     = ProtoField.uint16( proto_shortname .. ".xid.cop.abm"    , "Balanced ABM"             , base.DEC, yesno, 0x0001)
+local pf_agwpe_xid_cop_unrmp   = ProtoField.uint16( proto_shortname .. ".xid.cop.unrmp"  , "Unbalanced NRM Primary"   , base.DEC, yesno, 0x0002)
+local pf_agwpe_xid_cop_unrms   = ProtoField.uint16( proto_shortname .. ".xid.cop.unrms"  , "Unbalanced NRM Secondary" , base.DEC, yesno, 0x0004)
+local pf_agwpe_xid_cop_uarmp   = ProtoField.uint16( proto_shortname .. ".xid.cop.uarmp"  , "Unbalanced ARM Primary"   , base.DEC, yesno, 0x0008)
+local pf_agwpe_xid_cop_uarms   = ProtoField.uint16( proto_shortname .. ".xid.cop.uarms"  , "Unbalanced ARM Secondary" , base.DEC, yesno, 0x0010)
+local pf_agwpe_xid_cop_hdx     = ProtoField.uint16( proto_shortname .. ".xid.cop.hdx"    , "Half Duplex"              , base.DEC, yesno, 0x0020)
+local pf_agwpe_xid_cop_fdx     = ProtoField.uint16( proto_shortname .. ".xid.cop.fdx"    , "Full Duplex"              , base.DEC, yesno, 0x0040)
+local pf_agwpe_xid_cop_rsvd    = ProtoField.uint16( proto_shortname .. ".xid.cop.rsvd"   , "Reserved"                 , base.HEX,   nil, 0xFF80)
 
+local pf_agwpe_xid_hof         = ProtoField.uint32( proto_shortname .. ".xid.hof"        , "HDLC Optional Functions"  , base.HEX)
+local pf_agwpe_xid_hof_rsvd_1  = ProtoField.uint32( proto_shortname .. ".xid.hof.rsvd1"  , "Reserved"                 , base.DEC,   nil, 0x00000001)
+local pf_agwpe_xid_hof_rej     = ProtoField.uint32( proto_shortname .. ".xid.hof.rej"    , "REJ support"              , base.DEC, yesno, 0x00000002)
+local pf_agwpe_xid_hof_srej    = ProtoField.uint32( proto_shortname .. ".xid.hof.srej"   , "SREJ support"             , base.DEC, yesno, 0x00000004)
+local pf_agwpe_xid_hof_ui      = ProtoField.uint32( proto_shortname .. ".xid.hof.ui"     , "UI support"               , base.DEC, yesno, 0x00000008)
+local pf_agwpe_xid_hof_srim    = ProtoField.uint32( proto_shortname .. ".xid.hof.sim_rim", "SIM/RIM support"          , base.DEC, yesno, 0x00000010)
+local pf_agwpe_xid_hof_up      = ProtoField.uint32( proto_shortname .. ".xid.hof.up"     , "UP support"               , base.DEC, yesno, 0x00000020)
+local pf_agwpe_xid_hof_badd    = ProtoField.uint32( proto_shortname .. ".xid.hof.badd"   , "Basic Address"            , base.DEC, yesno, 0x00000040)
+local pf_agwpe_xid_hof_eadd    = ProtoField.uint32( proto_shortname .. ".xid.hof.eadd"   , "Extended Address"         , base.DEC, yesno, 0x00000080)
+local pf_agwpe_xid_hof_delir   = ProtoField.uint32( proto_shortname .. ".xid.hof.delir"  , "Delete I Response"        , base.DEC, yesno, 0x00000100)
+local pf_agwpe_xid_hof_delic   = ProtoField.uint32( proto_shortname .. ".xid.hof.delic"  , "Delete I Command"         , base.DEC, yesno, 0x00000200)
+local pf_agwpe_xid_hof_mod8    = ProtoField.uint32( proto_shortname .. ".xid.hof.mod8"   , "Modulo 8"                 , base.DEC, yesno, 0x00000400)
+local pf_agwpe_xid_hof_mod128  = ProtoField.uint32( proto_shortname .. ".xid.hof.mod128" , "Modulo 128"               , base.DEC, yesno, 0x00000800)
+local pf_agwpe_xid_hof_rst     = ProtoField.uint32( proto_shortname .. ".xid.hof.rst"    , "RSET support"             , base.DEC, yesno, 0x00001000)
+local pf_agwpe_xid_hof_tst     = ProtoField.uint32( proto_shortname .. ".xid.hof.tst"    , "TEST support"             , base.DEC, yesno, 0x00002000)
+local pf_agwpe_xid_hof_rd      = ProtoField.uint32( proto_shortname .. ".xid.hof.rd"     , "RD support"               , base.DEC, yesno, 0x00004000)
+local pf_agwpe_xid_hof_fcs16   = ProtoField.uint32( proto_shortname .. ".xid.hof.fcs16"  , "16-bit FCS"               , base.DEC, yesno, 0x00008000)
+local pf_agwpe_xid_hof_fcs32   = ProtoField.uint32( proto_shortname .. ".xid.hof.fcs32"  , "32-bit FCS"               , base.DEC, yesno, 0x00010000)
+local pf_agwpe_xid_hof_syntx   = ProtoField.uint32( proto_shortname .. ".xid.hof.syntx"  , "Synchronous TX"           , base.DEC, yesno, 0x00020000)
+local pf_agwpe_xid_hof_stttx   = ProtoField.uint32( proto_shortname .. ".xid.hof.stttx"  , "Start/Stop TX"            , base.DEC, yesno, 0x00040000)
+local pf_agwpe_xid_hof_stfctl  = ProtoField.uint32( proto_shortname .. ".xid.hof.stftcl" , "Start/Stop Basic Flow Ctl", base.DEC, yesno, 0x00080000)
+local pf_agwpe_xid_hof_stotra  = ProtoField.uint32( proto_shortname .. ".xid.hof.stotra" , "Start/Stop Octet Transp." , base.DEC, yesno, 0x00100000)
+local pf_agwpe_xid_hof_msrej   = ProtoField.uint32( proto_shortname .. ".xid.hof.msrej"  , "Multiframe SREJ Support"  , base.DEC, yesno, 0x00200000)
+local pf_agwpe_xid_hof_segm    = ProtoField.uint32( proto_shortname .. ".xid.hof.segm"   , "Segmenter / Reassembler"  , base.DEC, yesno, 0x00400000)
+local pf_agwpe_xid_hof_rsvd_23 = ProtoField.uint32( proto_shortname .. ".xid.hof.rsvd23" , "Reserved"                 , base.DEC,   nil, 0x00800000)
+
+local pf_agwpe_xid_n1_tx       = ProtoField.uint16( proto_shortname .. ".xid.n1_tx"      , "Max Tx I field length (N1)", base.UNIT_STRING, { " bits"})
+local pf_agwpe_xid_n1_rx       = ProtoField.uint16( proto_shortname .. ".xid.n1_rx"      , "Max Rx I field length (N1)", base.UNIT_STRING, { " bits"})
+local pf_agwpe_xid_k_tx        = ProtoField.uint8(  proto_shortname .. ".xid.k_tx"       , "Tx Window size (k)", base.DEC)
+local pf_agwpe_xid_k_rx        = ProtoField.uint8(  proto_shortname .. ".xid.k_rx"       , "Rx Window size (k)", base.DEC)
+local pf_agwpe_xid_t1          = ProtoField.uint16( proto_shortname .. ".xid.t1"         , "Wait for ACK timer (T1)", base.UNIT_STRING, {" ms"})
+
+p_agwpe.fields = {
+	pf_agwpe_src, pf_agwpe_dst, pf_agwpe_port, pf_agwpe_kind, pf_agwpe_pid, pf_agwpe_dir, pf_agwpe_mon, pf_agwpe_mon_s,
+	pf_agwpe_xid_fi, pf_agwpe_xid_gi, pf_agwpe_xid_gl, pf_agwpe_xid_pi, pf_agwpe_xid_pl, 
+	pf_agwpe_xid_cop, pf_agwpe_xid_cop_abm, pf_agwpe_xid_cop_unrmp, pf_agwpe_xid_cop_unrms, pf_agwpe_xid_cop_uarmp, pf_agwpe_xid_cop_uarms, 
+	pf_agwpe_xid_cop_hdx, pf_agwpe_xid_cop_fdx, pf_agwpe_xid_cop_rsvd, pf_agwpe_xid_n1_tx, pf_agwpe_xid_n1_rx, pf_agwpe_xid_k_tx, pf_agwpe_xid_k_rx,
+	pf_agwpe_xid_t1, pf_agwpe_xid_hof_rsvd_1, pf_agwpe_xid_hof_rej, pf_agwpe_xid_hof_srej, pf_agwpe_xid_hof_ui, pf_agwpe_xid_hof_srim, 
+	pf_agwpe_xid_hof_up, pf_agwpe_xid_hof_badd, pf_agwpe_xid_hof_eadd,  pf_agwpe_xid_hof_delir, pf_agwpe_xid_hof_delic, pf_agwpe_xid_hof_mod8,
+	pf_agwpe_xid_hof_mod128, pf_agwpe_xid_hof_rst, pf_agwpe_xid_hof_tst, pf_agwpe_xid_hof_rd, pf_agwpe_xid_hof_fcs16, pf_agwpe_xid_hof_fcs32, 
+	pf_agwpe_xid_hof_syntx, pf_agwpe_xid_hof_stttx, pf_agwpe_xid_hof_stfctl, pf_agwpe_xid_hof_stotra, pf_agwpe_xid_hof_msrej, pf_agwpe_xid_hof_segm,
+	pf_agwpe_xid_hof_rsvd_23, pf_agwpe_xid_hof 
+}
 --- [ Dissector helper functions ] ---
 
 -- Convert the datakind field into the matching packet name in the DTE->DCE direction
@@ -128,6 +206,102 @@ local function agwpe_get_s_type( buffer)
 		end
 	end
 	return -1
+end
+
+local function agw_dissect_xid( buffer, pinfo, tree)
+	local length = buffer:len()
+	-- References the byte *AFTER* the first \r
+	local xid_start = string.find( buffer():string(), "\r") 
+	if ( xid_start == nil ) then
+		return nil
+	end
+	-- Length including the Format Identifier
+	local xid_len = buffer( xid_start+2, 2):uint() + 1
+	local xid_pos = 4
+	local xid_payload = buffer( xid_start, xid_len) 
+	local subtree = tree:add( xid_payload, "AX.25 XID Payload" )
+	subtree:add( pf_agwpe_xid_fi, xid_payload(0,1))
+	subtree:add( pf_agwpe_xid_gi, xid_payload(1,1))
+	subtree:add( pf_agwpe_xid_gl, xid_payload(2,2))
+	while ( xid_pos+1 < xid_len ) do
+		local param_id  = xid_payload( xid_pos  , 1):uint()
+		local param_len = xid_payload( xid_pos+1, 1):uint()
+
+		if     ( param_id == 0x2 ) then
+			local cop_tree = subtree:add( pf_agwpe_xid_cop, xid_payload( xid_pos+2, param_len))
+			cop_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			cop_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+			cop_tree:add_le( pf_agwpe_xid_cop_abm,   xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_unrmp, xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_unrms, xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_uarmp, xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_uarms, xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_hdx,   xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_fdx,   xid_payload( xid_pos+2, param_len))
+			cop_tree:add_le( pf_agwpe_xid_cop_rsvd,  xid_payload( xid_pos+2, param_len))
+
+		elseif ( param_id == 0x3 ) then
+			local hof_tree = subtree:add( pf_agwpe_xid_hof, xid_payload( xid_pos+2, param_len))
+			hof_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			hof_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+			hof_tree:add_le( pf_agwpe_xid_hof_rsvd_1,  xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_rej,     xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_srej,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_ui,      xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_srim,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_up,      xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_badd,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_eadd,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_delir,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_delic,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_mod8,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_mod128,  xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_rst,     xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_tst,     xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_rd,      xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_fcs16,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_fcs32,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_syntx,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_stttx,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_stfctl,  xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_stotra,  xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_msrej,   xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_segm,    xid_payload( xid_pos+2, param_len))
+			hof_tree:add_le( pf_agwpe_xid_hof_rsvd_23, xid_payload( xid_pos+2, param_len))
+			
+		elseif ( param_id == 0x5 ) then
+			local n1tx_tree = subtree:add( pf_agwpe_xid_n1_tx, xid_payload( xid_pos+2, param_len))
+			n1tx_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			n1tx_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+
+		elseif ( param_id == 0x6 ) then
+			local n1rx_tree = subtree:add( pf_agwpe_xid_n1_rx, xid_payload( xid_pos+2, param_len))
+			n1rx_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			n1rx_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+
+		elseif ( param_id == 0x7 ) then
+			local ktx_tree = subtree:add( pf_agwpe_xid_k_tx, xid_payload( xid_pos+2, param_len))
+			ktx_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			ktx_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+
+		elseif ( param_id == 0x8 ) then
+			local krx_tree = subtree:add( pf_agwpe_xid_k_tx, xid_payload( xid_pos+2, param_len))
+			krx_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			krx_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+
+		elseif ( param_id == 0x9 ) then
+			local t1_tree = subtree:add( pf_agwpe_xid_t1, xid_payload( xid_pos+2, param_len))
+			t1_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			t1_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+		else
+			local param_tree = subtree:add( xid_payload( xid_pos, 2+param_len), "Parameter TLV" )
+			param_tree:add( pf_agwpe_xid_pi, xid_payload( xid_pos  , 1))
+			param_tree:add( pf_agwpe_xid_pl, xid_payload( xid_pos+1, 1))
+			param_tree:add_expert_info( PI_UNDECODED, PI_WARN, "Undocumented Parameter Value")
+		end
+
+		xid_pos = xid_pos + 2 + param_len
+	end
 end
 
 local function agw_is_ui_aprs( buffer)
@@ -314,6 +488,9 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			if( packet_type ~= -1 ) then
 				subtree:add( pf_agwpe_mon_s, packet_type, packet_type:string(), "S-Frame type: " .. packet_type:string())
 				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (mon)", "")
+				if ( packet_type:string() == "XID" ) then
+					agw_dissect_xid( buffer(36):tvb(), pinfo, tree)
+				end
 			else
 				subtree:add_expert_info( PI_PROTOCOL, PI_MALFORMED, "Did not detect S frame type")
 			end
@@ -325,6 +502,9 @@ function p_agwpe.dissector ( buffer, pinfo, tree)
 			if ( packet_type ~= -1 and packet_type:string() ~= "I" ) then
 				subtree:add( pf_agwpe_mon_s, packet_type, packet_type:string(), "S-Frame type: " .. packet_type:string())
 				pinfo.cols.info = "Src: " .. agw_callfrom .. ", Dst: " .. agw_callto .. ", PID: " .. agw_pid .. " [" .. packet_type:string() .. "]" .. fif( packet_type:string() ~= "XID", " (own)", "")
+				if ( packet_type:string() == "XID" ) then
+					agw_dissect_xid( buffer(36):tvb(), pinfo, tree)
+				end
 			end
 		end
 		
