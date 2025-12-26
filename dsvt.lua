@@ -137,9 +137,13 @@ local function get_stream_type_string( buffer)
 	return "Unknown"
 end
 
--- Descramble D-Star data, values pulled from :
--- https://github.com/g4klx/MMDVM/blob/824c9b985228ebf0538bd2b6f443c3aac9ce4318/DStarRX.cpp#L191-L202
--- FIXME: Study DStar's spec and explain how we're falling on those values
+-- Structure of DStar's strambler are explained in Annex 1 of the standard (https://www.jarl.com/d-star/STD7_0.pdf)
+-- It is an additive scrambler which polynome is S_x = x^7 + x^4 + 1 (see Annex 1.1)
+-- Bytes are presented to the scrambler from LSB to MSB (see Annex 1.4).
+-- When reset, the LFSR bits are all set to 1 (see Annex 1.1)
+
+-- For our computational convenience, the scrambler sequence has been pre-computed (and pulled from G4KLX's MMDVM).
+-- A spreadsheet can be found at doc/dstar_scrambler.ods for a clearer illustration.
 
 local function descramble( bytearray)
 	local scrambler_seq = { [0]=0x70, [1]=0x4f, [2]=0x93, [3]=0x40, [4]=0x64, [5]=0x74, [6]=0x6d, [7]=0x30, [8]=0x2b, }
