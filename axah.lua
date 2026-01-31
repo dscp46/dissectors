@@ -12,9 +12,8 @@ local f_ax25_dst = Field.new("ax25.dst")
 local f_ax25_src = Field.new("ax25.src")
 
 -- ProtoFields
-local pf_axah_ctl  = ProtoField.uint8 ( proto_shortname .. ".next_ctl", "Next Control", base.HEX)
+local pf_axah_ctl  = ProtoField.bytes ( proto_shortname .. ".next_ctl", "Next Control")
 local pf_axah_e    = ProtoField.uint8 ( proto_shortname .. ".e", "Extended Control", base.DEC, yesno, 0x80)
-local pf_axah_ectl = ProtoField.uint16( proto_shortname .. ".next_ectl", "Next Control", base.HEX)
 local pf_axah_icv  = ProtoField.bytes ( proto_shortname .. ".icv", "AX.AH ICV")
 local pf_axah_len  = ProtoField.uint8 ( proto_shortname .. ".length", "Payload length", base.DEC, nil, 0x7F)
 local pf_axah_pad  = ProtoField.uint8 ( proto_shortname .. ".padding", "Padding", base.HEX)
@@ -23,7 +22,7 @@ local pf_axah_seq  = ProtoField.uint32( proto_shortname .. ".sequence", "AX.AH S
 local pf_axah_spi  = ProtoField.uint32( proto_shortname .. ".spi", "AX.AH SPI", base.HEX)
 
 p_axah.fields = {
-	pf_axah_ctl, pf_axah_e, pf_axah_ectl, pf_axah_icv, pf_axah_len, pf_axah_pad, 
+	pf_axah_ctl, pf_axah_e, pf_axah_icv, pf_axah_len, pf_axah_pad,
 	pf_axah_pid, pf_axah_seq, pf_axah_spi
 }
 
@@ -45,14 +44,16 @@ function p_axah.dissector( buffer, pinfo, tree)
 		return
 	end
 	
+	local ctl_data
 	if( extended_ctl == 0 ) then
 		subtree:add( pf_axah_pad, buffer(0,1))
-		subtree:add( pf_axah_ctl, buffer(1,1))
-		inner_frame:append( buffer(1,1):bytes())
+		ctl_data = buffer(1,1)
 	else
-		subtree:add( pf_axah_ectl, buffer(0,2))
-		inner_frame:append( buffer(0,2):bytes())
+		ctl_data = buffer(0,2)
 	end
+	subtree:add( pf_axah_ctl, ctl_data)
+	inner_frame:append( ctl_data:bytes())
+	pinfo.private.ax25_ctl = ctl_data:uint()
 	
 	subtree:add( pf_axah_pid, buffer(2,1))
 	local subtree_len = subtree:add( buffer(3,1), "Length fields")

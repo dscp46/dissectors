@@ -23,6 +23,7 @@ local function p_ax25_nol3_heur_is_aprs(buffer, pinfo, tree)
     
     -- Only for UI Frames
     local fi_ax25_ctl = f_ax25_ctl()
+    if ( pinfo.private.ax25_ctl ~= nil and bit.band( pinfo.private.ax25_ctl, 0xEF) ~= 0x03 ) then return false end
     if ( fi_ax25_ctl.value == nil or bit.band( fi_ax25_ctl.value, 0xEF) ~= 0x03 ) then return false end
 
 	-- Only for supported types
